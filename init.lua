@@ -227,6 +227,8 @@ if(not failed_to_load)then
 
 			if(item_infos[steam_id])then
 				file_path = item_infos[steam_id].folder
+			else
+				file_path = "mods/" .. mod_id
 			end
 		end
 
