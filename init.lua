@@ -386,7 +386,7 @@ if(not failed_to_load)then
 		noita_version = noita_version .. " (beta)"
 	end
 
-	function GetContentHash()
+	--[[function GetContentHash()
 		local file = "data\\data.wak"
 
 		-- try to run certutil
@@ -425,16 +425,16 @@ if(not failed_to_load)then
 		result = result:gsub("^%s*(.-)%s*$", "%1")
 
 		return result
-	end
+	end]]
 	
 	
 
-	noita_version_hash = GetContentHash()
+	--noita_version_hash = GetContentHash()
 
-	print("Noita version hash: " .. noita_version_hash)
+	--print("Noita version hash: " .. noita_version_hash)
 	
 
-	debug_info:print("Noita hash: " .. tostring(noita_version_hash))
+	--debug_info:print("Noita hash: " .. tostring(noita_version_hash))
 
 	--[[last_noita_version = ModSettingGet("evaisa.mp.last_noita_version_hash") or ""
 	laa_check_done = true
