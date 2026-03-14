@@ -2,7 +2,11 @@ local profile = dofile("mods/evaisa.mp/lib/profile.lua")
 
 local profile_next = false
 local profile_next_no_ui = false
-local profiler_rate = math.floor(ModSettingGet("evaisa.mp.profiler_rate") or 1)
+local get_profiler_rate = function()
+    return math.floor(tonumber(ModSettingGet("evaisa.mp.profiler_rate")) or 1)
+end
+
+local profiler_rate = get_profiler_rate()
 
 local profiler_folder_name = "noita_online_logs/profiler"
 
@@ -36,13 +40,13 @@ local generate_profiler_data = function()
 
             if label_indices[label] == nil then
                 label_indices[label] = {index = #profiler_data + 1, sum_calls = 0, sum_times = 0}
-                profiler_data[label_indices[label].index] = {label, {imgui.as_vector_float({}), imgui.as_vector_float({}), imgui.as_vector_float({})}}
+                profiler_data[label_indices[label].index] = {label, {{}, {}, {}}}
             end
 
             local entry = profiler_data[label_indices[label].index][2]
-            entry[1]:add(curr_frame + i)
-            entry[2]:add(data[2])
-            entry[3]:add(data[3])
+            table.insert(entry[1], curr_frame + i)
+            table.insert(entry[2], data[2])
+            table.insert(entry[3], data[3])
 
             -- Precompute sums
             label_indices[label].sum_times = label_indices[label].sum_times + data[2]
@@ -67,7 +71,7 @@ local generate_profiler_data = function()
 end
 
 profiler_ui.apply_profiler_rate = function()
-    profiler_rate = math.floor(ModSettingGet("evaisa.mp.profiler_rate") or 1)
+    profiler_rate = get_profiler_rate()
 end
 
 profiler_ui.pre_update = function()
@@ -95,8 +99,11 @@ profiler_ui.pre_update = function()
             print("Starting profiler")
         else
             profile.clear()
-            profiler_result_file:write(profiler_result_content)
-            profiler_result_file:close()
+            if(profiler_result_file ~= nil)then
+                profiler_result_file:write(profiler_result_content)
+                profiler_result_file:close()
+                profiler_result_file = nil
+            end
             print("Stopping profiler")
         end
     end 
@@ -115,8 +122,11 @@ profiler_ui.pre_update = function()
             print("Starting profiler without UI")
         else
             profile.clear()
-            profiler_result_file:write(profiler_result_content)
-            profiler_result_file:close()
+            if(profiler_result_file ~= nil)then
+                profiler_result_file:write(profiler_result_content)
+                profiler_result_file:close()
+                profiler_result_file = nil
+            end
             print("Stopping profiler without UI")
         end
 

@@ -352,6 +352,65 @@ if(not failed_to_load)then
 
 	lobby_gamemode = nil
 
+	local function unlock_hidden_chat_player()
+		if(not GameHasFlagRun("player_locked_chat"))then
+			return
+		end
+
+		local players = EntityGetWithTag("player_unit")
+		if(players == nil or players[1] == nil)then
+			GameRemoveFlagRun("player_locked_chat")
+			return
+		end
+
+		if(not GameHasFlagRun("player_locked"))then
+			local controls = EntityGetFirstComponentIncludingDisabled(players[1], "ControlsComponent")
+			if(controls ~= nil)then
+				ComponentSetValue2(controls, "enabled", true)
+			end
+		end
+
+		GameRemoveFlagRun("player_locked_chat")
+	end
+
+	local function should_hide_online_ui_for_arena()
+		if(lobby_code == nil or not ModIsEnabled("evaisa.arena"))then
+			return false
+		end
+
+		if(not ModSettingGet("evaisa.arena.hide_ui_in_combat"))then
+			return false
+		end
+
+		if((steam.matchmaking.getLobbyData(lobby_code, "arena_state") or "lobby") ~= "arena")then
+			return false
+		end
+
+		return GameHasFlagRun("evaisa_arena_hide_ui")
+	end
+
+	local function reset_online_ui_for_arena()
+		chat_open = false
+		chat_opened_with_bind = false
+		if(chat_input ~= nil)then
+			chat_input.focus = false
+		end
+		if(GameHasFlagRun("chat_input_hovered"))then
+			GameRemoveFlagRun("chat_input_hovered")
+		end
+		GameRemoveFlagRun("chat_bind_disabled")
+		unlock_hidden_chat_player()
+
+		gui_closed = true
+		invite_menu_open = false
+		mod_list_open = false
+		lobby_settings_open = false
+		lobby_presets_open = false
+		was_lobby_presets_open = false
+		selected_player = nil
+		show_lobby_code = false
+	end
+
 
 
 	debug_info:print("Dev mode: " .. tostring(dev_mode))
@@ -931,9 +990,12 @@ if(not failed_to_load)then
 					ResetWindowStack()
 
 					--print(fs.cd())
-					
-					dofile("mods/evaisa.mp/files/scripts/lobby_ui.lua")
-					dofile("mods/evaisa.mp/files/scripts/chat_ui.lua")
+					if(should_hide_online_ui_for_arena())then
+						reset_online_ui_for_arena()
+					else
+						dofile("mods/evaisa.mp/files/scripts/lobby_ui.lua")
+						dofile("mods/evaisa.mp/files/scripts/chat_ui.lua")
+					end
 			
 					if (GameGetFrameNum() % (600) == 0) then
 						steamutils.CheckLocalLobbyData()
