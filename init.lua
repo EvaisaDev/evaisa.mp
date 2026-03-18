@@ -9,7 +9,7 @@ noita_online_download = "https://github.com/EvaisaDev/noita-online/releases"
 exceptions_in_logger = true
 dev_mode = false
 debugging = false
-disable_print = false
+disable_print = true
 trailer_mode = false
 disable_error_catching = false
 
@@ -668,6 +668,7 @@ if(not failed_to_load)then
 	end
 
 	function TryHandleMessage(lobby_code, event, message, user, ignore)
+		print("Received message: " .. tostring(event) .. " with content: " .. tostring(message) .. " from user: " .. tostring(user))
 		try(function()
 			if (lobby_gamemode ~= nil) then
 				local owner = steam.matchmaking.getLobbyOwner(lobby_code)
@@ -758,6 +759,8 @@ if(not failed_to_load)then
 		if (lobby_gamemode.message and not ignore) then
 			lobby_gamemode.message(lobby_code, data, v.user)
 		end
+
+		print("Received raw message: " .. tostring(v.data) .. " from user: " .. tostring(v.user) .. " with size: " .. tostring(v.msg_size))
 		
 		if (data[1] and type(data[1]) == "string") then
 			if(bytes_received_per_type[data[1]] == nil)then
