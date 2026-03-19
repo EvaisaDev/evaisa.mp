@@ -123,6 +123,12 @@ lobby_presets_open = lobby_presets_open or false
 was_lobby_presets_open = was_lobby_presets_open or false
 settings_changed = settings_changed or false
 
+lobby_filter_show_full = (lobby_filter_show_full == nil) and true or lobby_filter_show_full
+lobby_filter_show_friends = (lobby_filter_show_friends == nil) and true or lobby_filter_show_friends
+lobby_filter_show_public = (lobby_filter_show_public == nil) and true or lobby_filter_show_public
+lobby_filter_distance = lobby_filter_distance or "worldwide"
+lobby_filter_max_players = lobby_filter_max_players or 0
+
 local is_in_lobby = lobby_code ~= nil and true or false
 
 selected_player = selected_player or nil
@@ -921,6 +927,7 @@ local windows = {
 					refreshLobbies()
 				end
 				GuiText(menu_gui, 2, 0, " ")
+				if(lobby_filter_show_friends)then
 				GuiText(menu_gui, 2, 0, "----- "..GameTextGetTranslatedOrNot("$mp_friend_lobbies").." -----")
 				if(#lobbies.friend > 0)then
 					for k, v in ipairs(lobbies.friend)do
@@ -937,7 +944,7 @@ local windows = {
 							local lobby_members = steam.matchmaking.getNumLobbyMembers(v)
 							local lobby_max_players = steam.matchmaking.getLobbyMemberLimit(v)
 
-							if(lobby_name ~= nil and active_mode ~= nil and lobby_mode_id ~= nil and lobby_members ~= nil and lobby_max_players ~= nil)then
+							if(lobby_name ~= nil and active_mode ~= nil and lobby_mode_id ~= nil and lobby_members ~= nil and lobby_max_players ~= nil and (lobby_filter_show_full or lobby_members < lobby_max_players) and (lobby_filter_max_players == 0 or lobby_max_players == lobby_filter_max_players))then
 								GuiLayoutBeginHorizontal(menu_gui, 0, 0, true, 0, 0)
 								if(not IsCorrectVersion(v))then
 									--[[
@@ -1072,7 +1079,9 @@ local windows = {
 				else
 					GuiText(menu_gui, 2, 0, GameTextGetTranslatedOrNot("$mp_no_lobbies_found"))
 				end
+				end
 				GuiText(menu_gui, 2, 0, " ")
+				if(lobby_filter_show_public)then
 				GuiText(menu_gui, 2, 0, "----- "..GameTextGetTranslatedOrNot("$mp_public_lobbies").." -----")
 				if(#lobbies.public > 0)then
 					for k, v in ipairs(lobbies.public)do
@@ -1088,7 +1097,7 @@ local windows = {
 						local lobby_members = steam.matchmaking.getNumLobbyMembers(v)
 						local lobby_max_players = steam.matchmaking.getLobbyMemberLimit(v)
 
-						if(lobby_name ~= nil and active_mode ~= nil and lobby_mode_id ~= nil and lobby_members ~= nil and lobby_max_players ~= nil)then
+						if(lobby_name ~= nil and active_mode ~= nil and lobby_mode_id ~= nil and lobby_members ~= nil and lobby_max_players ~= nil and (lobby_filter_show_full or lobby_members < lobby_max_players) and (lobby_filter_max_players == 0 or lobby_max_players == lobby_filter_max_players))then
 							GuiLayoutBeginHorizontal(menu_gui, 0, 0, true, 0, 0)
 							if(not IsCorrectVersion(v))then
 								--[[if(GuiButton(menu_gui, NewID(), 0, 0, GameTextGetTranslatedOrNot("$mp_version_mismatch").." "..lobby_name))then
@@ -1217,6 +1226,7 @@ local windows = {
 				else
 					GuiText(menu_gui, 2, 0, GameTextGetTranslatedOrNot("$mp_no_lobbies_found"))
 				end
+				end
 					
 				
 				--[[
@@ -1231,6 +1241,44 @@ local windows = {
 				invite_menu_open = false 
 				selected_player = nil
 			end, "main_menu_gui")
+
+			local filter_panel_width = 160
+			DrawWindow(menu_gui, -4000, (screen_width / 2 - window_width / 2) - (filter_panel_width / 2) - 10, screen_height / 2, filter_panel_width, window_height, "Filters", true, function()
+				GuiLayoutBeginVertical(menu_gui, 0, 0, true, 0, 0)
+				local chk = function(val) return val and "[X]" or "[ ]" end
+
+				if(GuiButton(menu_gui, NewID("LobbyFilter"), 0, 0, chk(lobby_filter_show_full) .. " Show Full"))then
+					lobby_filter_show_full = not lobby_filter_show_full
+				end
+				if(GuiButton(menu_gui, NewID("LobbyFilter"), 0, 0, chk(lobby_filter_show_friends) .. " Friends"))then
+					lobby_filter_show_friends = not lobby_filter_show_friends
+				end
+				if(GuiButton(menu_gui, NewID("LobbyFilter"), 0, 0, chk(lobby_filter_show_public) .. " Public"))then
+					lobby_filter_show_public = not lobby_filter_show_public
+				end
+
+				GuiText(menu_gui, 2, 0, " ")
+
+				local distance_order = {"close", "default", "far", "worldwide"}
+				if(GuiButton(menu_gui, NewID("LobbyFilter"), 0, 0, "Dist: " .. distance[lobby_filter_distance]))then
+					for i, d in ipairs(distance_order) do
+						if(d == lobby_filter_distance)then
+							lobby_filter_distance = distance_order[(i % #distance_order) + 1]
+							refreshLobbies()
+							break
+						end
+					end
+				end
+
+				GuiText(menu_gui, 2, 0, " ")
+
+				local max_str = lobby_filter_max_players == 0 and "Any" or tostring(lobby_filter_max_players)
+				GuiText(menu_gui, 2, 0, "Players: " .. max_str)
+				local slider_val = GuiSlider(menu_gui, NewID("LobbyFilter"), 4, 0, "", lobby_filter_max_players, 0, 32, 0, 1, " $0", 120)
+				lobby_filter_max_players = math.floor(slider_val)
+
+				GuiLayoutEnd(menu_gui)
+			end, nil, "lobby_filter_panel")
 
 		end
 	},

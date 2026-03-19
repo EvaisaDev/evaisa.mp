@@ -545,7 +545,7 @@ function refreshLobbies()
 	local indexed_lobby = {}
 
 	--steam.matchmaking.addRequestLobbyListStringFilter("LobbyType", "Public", "Equal")
-	steam.matchmaking.addRequestLobbyListDistanceFilter(distance.worldwide)
+	steam.matchmaking.addRequestLobbyListDistanceFilter(distance[lobby_filter_distance] or distance.worldwide)
 
 	local activeSystem = "NoitaOnline"
 
