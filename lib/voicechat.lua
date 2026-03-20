@@ -101,6 +101,14 @@ local jitter_buffer = {}
 local jitter_started = false
 local LOW_WATER_BYTES = CHUNK_BYTES * 2
 
+local last_mic_level = 0.0
+local gate_gain = 0.0
+local GATE_RAMP_RATE = 1.0 / 480
+
+M.get_mic_level = function()
+    return last_mic_level
+end
+
 local function init_sdl_audio()
     sdl.SDL_InitSubSystem(SDL_INIT_AUDIO)
 end
@@ -210,12 +218,55 @@ M.capture_tick = function(ptt_held)
     local buf = ffi.new("uint8_t[?]", buf_size)
     local got = sdl.SDL_DequeueAudio(capture_dev, buf, buf_size)
 
-    if not ptt_held or got == 0 then
-        if not ptt_held then
+    local target_gain = ptt_held and 1.0 or 0.0
+
+    if got > 0 then
+        local n_samples = got / 2
+        local samples = ffi.cast("int16_t*", buf)
+        local sum_sq = 0.0
+        for i = 0, n_samples - 1 do
+            local s = samples[i] / 32768.0
+            sum_sq = sum_sq + s * s
+        end
+        last_mic_level = math.sqrt(sum_sq / n_samples) * (tonumber(ModSettingGet("evaisa.mp.voicechat_mic_volume")) or 1.0)
+    else
+        last_mic_level = last_mic_level * 0.85
+    end
+
+    if target_gain == 0.0 and gate_gain == 0.0 then
+        sdl.SDL_ClearQueuedAudio(capture_dev)
+        pcm_accum = {}
+        pcm_accum_bytes = 0
+        return nil
+    end
+
+    if got == 0 then
+        if target_gain == 0.0 then
+            gate_gain = 0.0
             sdl.SDL_ClearQueuedAudio(capture_dev)
             pcm_accum = {}
             pcm_accum_bytes = 0
         end
+        return nil
+    end
+
+    local n_samples = got / 2
+    local samples = ffi.cast("int16_t*", buf)
+    local mic_vol = tonumber(ModSettingGet("evaisa.mp.voicechat_mic_volume")) or 1.0
+    for i = 0, n_samples - 1 do
+        if target_gain > gate_gain then
+            gate_gain = math.min(1.0, gate_gain + GATE_RAMP_RATE)
+        elseif target_gain < gate_gain then
+            gate_gain = math.max(0.0, gate_gain - GATE_RAMP_RATE)
+        end
+        local s = samples[i] * gate_gain * mic_vol
+        if s > 32767 then s = 32767 elseif s < -32768 then s = -32768 end
+        samples[i] = s
+    end
+
+    if gate_gain == 0.0 then
+        pcm_accum = {}
+        pcm_accum_bytes = 0
         return nil
     end
 
@@ -237,7 +288,7 @@ M.update_listener = function(x, y)
     listener_y = y
 end
 
-M.play_voice = function(pcm_data, x, y)
+M.play_voice = function(pcm_data, x, y, global_vol, player_vol)
     local dx = x - listener_x
     local dy = y - listener_y
     local dist = math.sqrt(dx * dx + dy * dy)
@@ -248,6 +299,7 @@ M.play_voice = function(pcm_data, x, y)
     else
         gain = 1.0 - (dist - VOICE_MIN_DIST) / (VOICE_MAX_DIST - VOICE_MIN_DIST)
     end
+    gain = gain * (global_vol or 1.0) * (player_vol or 1.0)
     table.insert(jitter_buffer, { pcm = pcm_data, gain = gain })
 end
 

@@ -857,6 +857,48 @@ local default_lobby_menus = {
 		close = function()
 			was_lobby_presets_open = false
 		end
+	},
+	{
+		id = "voice_volumes",
+		name = "Voice Volumes",
+		button_text = "Voice",
+		draw = function(lobby, gui, new_id)
+			local players = steam_utils.getLobbyMembers(lobby, true)
+			local my_id = steam_utils.getSteamID()
+			local box_w = 180
+			local current_y = 0
+
+			for _, v in pairs(players) do
+				if v.id ~= my_id then
+					local name = tostring(v.name)
+					local key = "evaisa.mp.player_vol_" .. tostring(v.id)
+					local cur_vol = tonumber(ModSettingGet(key)) or 1.0
+
+					local label = name
+					if #label > 18 then label = label:sub(1, 18) .. ".." end
+
+					local lw, lh = GuiGetTextDimensions(gui, label)
+					local box_h = lh + 16
+					Gui9Piece(gui, function() return new_id("vc_vol_" .. tostring(v.id)) end, 0, current_y, box_w, box_h, 0.1, -5600, "mods/evaisa.mp/files/gfx/ui/9piece_white.xml", 3)
+					GuiText(gui, 4, current_y + 2, label)
+
+					local new_vol = GuiSlider(gui, new_id("vc_vol_sl_" .. tostring(v.id)), 2, current_y + lh + 2, "", cur_vol, 0.0, 2.0, 1.0, 0.05, "        ", 146)
+
+					GuiColorSetForNextWidget(gui, 1, 1, 1, 0.7)
+					GuiText(gui, 153, current_y + lh + 1, math.floor(new_vol * 100) .. "%")
+
+					if math.abs(new_vol - cur_vol) > 0.01 then
+						ModSettingSet(key, new_vol)
+					end
+
+					current_y = current_y + box_h + 2
+				end
+			end
+
+			if current_y == 0 then
+				GuiText(gui, 4, 0, "No other players")
+			end
+		end,
 	}
 }
 lobby_menus = lobby_menus or {}

@@ -87,6 +87,46 @@ mod_settings =
 				value_default = true,
 				scope = MOD_SETTING_SCOPE_RUNTIME,
 			},
+			{
+				id = "voicechat_volume",
+				ui_name = "Voice Chat Volume",
+				ui_description = "Global volume multiplier for received voice chat.",
+				value_default = 1.0,
+				value_min = 0.0,
+				value_max = 2.0,
+				value_display_multiplier = 100,
+				value_display_formatting = " $0%",
+				scope = MOD_SETTING_SCOPE_RUNTIME,
+			},
+			{
+				id = "voicechat_mic_volume",
+				ui_name = "Microphone Volume",
+				ui_description = "Amplify or reduce your microphone output volume.",
+				value_default = 1.0,
+				value_min = 0.0,
+				value_max = 2.0,
+				value_display_multiplier = 100,
+				value_display_formatting = " $0%",
+				scope = MOD_SETTING_SCOPE_RUNTIME,
+			},
+			{
+				id = "voicechat_vad_mode",
+				ui_name = "Voice Activation",
+				ui_description = "Use voice activation instead of push-to-talk.\nWhen enabled, your mic activates automatically when you speak.",
+				value_default = false,
+				scope = MOD_SETTING_SCOPE_RUNTIME,
+			},
+			{
+				id = "voicechat_vad_threshold",
+				ui_name = "Activation Threshold",
+				ui_description = "How loud you need to speak to trigger voice activation.\nLower = more sensitive.",
+				value_default = 0.01,
+				value_min = 0,
+				value_max = 0.1,
+				value_display_multiplier = 1000,
+				value_display_formatting = " $0%",
+				scope = MOD_SETTING_SCOPE_RUNTIME,
+			},
 		}
 	}
 
@@ -165,6 +205,19 @@ mod_setting_title = function ( mod_id, gui, in_main_menu, im_id, setting )
 	old_mod_setting_title(mod_id, gui, in_main_menu, im_id, setting)
 end
 
+mod_setting_number = function( mod_id, gui, in_main_menu, im_id, setting )
+	local value = ModSettingGetNextValue( mod_setting_get_id(mod_id,setting) )
+	if type(value) ~= "number" then value = setting.value_default or 0.0 end
+
+	local value_new = GuiSlider( gui, im_id, mod_setting_group_x_offset, 0, setting.ui_name, value, setting.value_min, setting.value_max, setting.value_default, setting.value_display_multiplier or 1, setting.value_display_formatting or "", 160 )
+	if value ~= value_new then
+		ModSettingSetNextValue( mod_setting_get_id(mod_id,setting), value_new, false )
+		mod_setting_handle_change_callback( mod_id, gui, in_main_menu, setting, value, value_new )
+	end
+
+	mod_setting_tooltip( mod_id, gui, in_main_menu, setting )
+end
+
 local function GenerateDisplayName(id)
 	-- if id starts with "Key_", remove it
 	if(id:sub(1, 4) == "Key_")then
@@ -189,6 +242,19 @@ local function GenerateDisplayName(id)
 	end
 
 	return id
+end
+
+function ImageClip(gui, id,  x, y, width, height, fn, ...)
+	GuiAnimateBegin(gui)
+	GuiAnimateAlphaFadeIn(gui, id * 620, 0, 0, true)
+	GuiBeginAutoBox(gui)
+
+	GuiZSetForNextWidget(gui, 1000)
+	GuiBeginScrollContainer(gui, id * 630, x, y, width, height, false, 0, 0)
+	GuiEndAutoBoxNinePiece(gui)
+	GuiAnimateEnd(gui)
+	fn(gui, width, height, ...)
+	GuiEndScrollContainer(gui)
 end
 
 function ModSettingsGui(gui, in_main_menu)
@@ -299,15 +365,16 @@ function ModSettingsGui(gui, in_main_menu)
 		local saved_name = ModSettingGet("evaisa.mp.mic_device_name") or ""
 		local display_name = saved_name ~= "" and saved_name or "Default"
 
-		local mic_setting_exists = false
+		local mic_device_exists = false
+		local mic_level_exists = false
+		local mic_test_exists = false
 		for _, s in ipairs(vc_cat.settings) do
-			if s.id == "mic_device" then
-				mic_setting_exists = true
-				break
-			end
+			if s.id == "mic_device" then mic_device_exists = true end
+			if s.id == "mic_level_display" then mic_level_exists = true end
+			if s.id == "mic_test_button" then mic_test_exists = true end
 		end
 
-		if not mic_setting_exists then
+		if not mic_device_exists then
 			table.insert(vc_cat.settings, {
 				id = "mic_device",
 				ui_name = "Microphone",
@@ -344,6 +411,86 @@ function ModSettingsGui(gui, in_main_menu)
 				handler_callback = function(mod_id, setting)
 					local name = ModSettingGet("evaisa.mp.mic_device_name") or ""
 					return "[" .. (name ~= "" and name or "Default") .. "]"
+				end,
+			})
+		end
+
+		if not mic_level_exists then
+			table.insert(vc_cat.settings, {
+				id = "mic_level_display",
+				ui_name = "Mic Level",
+				ui_description = "Live microphone input level. Use this to tune the activation threshold.",
+				not_setting = true,
+				ui_fn = function(mod_id, gui, in_main_menu, im_id, setting)
+					local level = tonumber(GlobalsGetValue("evaisa.mp.mic_level", "0")) or 0
+					local threshold = tonumber(ModSettingGet("evaisa.mp.voicechat_vad_threshold")) or 0.04
+					local max_level = 0.1
+					local bar_w = 120
+					local bar_h = 6
+					local ox = mod_setting_group_x_offset
+					local above = level >= threshold
+
+					local filled_w = math.max(1, math.floor(math.min(level / max_level, 1.0) * bar_w))
+					local empty_w = bar_w - filled_w
+					local threshold_x = math.min(math.floor(math.min(threshold / max_level, 1.0) * bar_w), bar_w - 1)
+
+					local pre_filled  = math.min(filled_w, threshold_x)
+					local pre_empty   = math.max(0, threshold_x - filled_w)
+					local post_filled = math.max(0, filled_w - threshold_x - 1)
+					local post_empty  = bar_w - threshold_x - 1 - post_filled
+
+					ImageClip(gui, 32512396, 0, 0, bar_w, bar_h, function(gui, width, height)
+					GuiLayoutBeginHorizontal(gui, ox, 0, true, 0, 0)
+
+						if pre_filled > 0 then
+							if above then
+								GuiColorSetForNextWidget(gui, 0.3, 0.9, 0.4, 1)
+							else
+								GuiColorSetForNextWidget(gui, 0.5, 0.7, 0.9, 1)
+							end
+							GuiImage(gui, 3185122, 0, 0, "mods/evaisa.mp/files/gfx/ui/1pixel.png", 1, pre_filled, bar_h, 0)
+						end
+						if pre_empty > 0 then
+							GuiColorSetForNextWidget(gui, 0.15, 0.15, 0.15, 1)
+							GuiImage(gui, 3185123, 0, 0, "mods/evaisa.mp/files/gfx/ui/1pixel.png", 1, pre_empty, bar_h, 0)
+						end
+
+						GuiColorSetForNextWidget(gui, 1, 0.2, 0.2, 1)
+						GuiImage(gui, 3185124, 0, 0, "mods/evaisa.mp/files/gfx/ui/1pixel.png", 1, 1, bar_h, 0)
+
+						if post_filled > 0 then
+							if above then
+								GuiColorSetForNextWidget(gui, 0.3, 0.9, 0.4, 1)
+							else
+								GuiColorSetForNextWidget(gui, 0.5, 0.7, 0.9, 1)
+							end
+							GuiImage(gui, 3185125, 0, 0, "mods/evaisa.mp/files/gfx/ui/1pixel.png", 1, post_filled, bar_h, 0)
+						end
+						if post_empty > 0 then
+							GuiColorSetForNextWidget(gui, 0.15, 0.15, 0.15, 1)
+							GuiImage(gui, 3185126, 0, 0, "mods/evaisa.mp/files/gfx/ui/1pixel.png", 1, post_empty, bar_h, 0)
+						end
+
+					GuiLayoutEnd(gui)
+					end)
+				end,
+			})
+		end
+
+		if not mic_test_exists then
+			table.insert(vc_cat.settings, {
+				id = "mic_test_button",
+				ui_name = "Test Microphone",
+				ui_description = "Toggle microphone loopback test. You will hear yourself with a short delay.",
+				ui_fn = mod_setting_button,
+				clicked_callback = function(mod_id, setting, value)
+					GlobalsSetValue("evaisa.mp.request_mic_test_toggle", "1")
+				end,
+				right_clicked_callback = function(mod_id, setting, value)
+					GlobalsSetValue("evaisa.mp.request_mic_test_toggle", "1")
+				end,
+				handler_callback = function(mod_id, setting)
+					return GlobalsGetValue("evaisa.mp.mic_test_active", "0") == "1" and "[Active]" or "[Off]"
 				end,
 			})
 		end

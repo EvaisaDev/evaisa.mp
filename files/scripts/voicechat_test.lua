@@ -5,12 +5,15 @@ local STATE_RECORDING = "recording"
 local STATE_STOPPED   = "stopped"
 
 local INSTANT_DELAY_FRAMES = 2 * 60
+local MIC_TEST_DELAY_FRAMES = 30
 
 local state          = STATE_IDLE
 local window_open    = false
 local instant_mode   = false
+local mic_test_mode  = false
 local recorded_audio = nil
 local instant_queue  = {}
+local mic_test_queue = {}
 local gui_id_base    = 9700
 local noita_gui      = nil
 
@@ -22,6 +25,9 @@ local function loopback_receive(chunk)
     if instant_mode then
         table.insert(instant_queue, { data = chunk, frame = GameGetFrameNum() + INSTANT_DELAY_FRAMES })
     end
+    if mic_test_mode then
+        table.insert(mic_test_queue, { data = chunk, frame = GameGetFrameNum() + MIC_TEST_DELAY_FRAMES })
+    end
 end
 
 vc_test.toggle_window = function()
@@ -30,6 +36,15 @@ end
 
 vc_test.is_open = function()
     return window_open
+end
+
+vc_test.is_mic_testing = function()
+    return mic_test_mode
+end
+
+vc_test.toggle_mic_test = function()
+    mic_test_mode = not mic_test_mode
+    mic_test_queue = {}
 end
 
 vc_test.loopback_receive = loopback_receive
@@ -54,6 +69,24 @@ local function play_recorded()
 end
 
 vc_test.update = function()
+    if not window_open and not mic_test_mode then return end
+
+    if mic_test_mode and #mic_test_queue > 0 then
+        local frame = GameGetFrameNum()
+        local i = 1
+        while i <= #mic_test_queue do
+            local entry = mic_test_queue[i]
+            if frame >= entry.frame then
+                if voicechat ~= nil then
+                    voicechat.play_direct(entry.data)
+                end
+                table.remove(mic_test_queue, i)
+            else
+                i = i + 1
+            end
+        end
+    end
+
     if not window_open then return end
 
     if instant_mode and #instant_queue > 0 then

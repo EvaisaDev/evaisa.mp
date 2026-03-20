@@ -337,6 +337,20 @@ if(not failed_to_load)then
 	streaming = dofile("mods/evaisa.mp/lib/streaming.lua")
 	voicechat = dofile("mods/evaisa.mp/lib/voicechat.lua")
 	vc_test = dofile("mods/evaisa.mp/files/scripts/voicechat_test.lua")
+	vad_hold_frames_remaining = 0
+
+	local function get_mic_above_threshold()
+		local level = voicechat.get_mic_level()
+		local threshold = tonumber(ModSettingGet("evaisa.mp.voicechat_vad_threshold")) or 0.04
+		if level >= threshold then
+			vad_hold_frames_remaining = 45
+			return true
+		elseif vad_hold_frames_remaining > 0 then
+			vad_hold_frames_remaining = vad_hold_frames_remaining - 1
+			return true
+		end
+		return false
+	end
 
 	local profiler_ui = dofile("mods/evaisa.mp/lib/profiler_ui.lua")
 
@@ -591,6 +605,35 @@ if(not failed_to_load)then
 		end
 	end
 
+	function OnPausePreUpdate()
+		if voicechat ~= nil then
+			if not GameHasFlagRun("evaisa.mp.voicechat_capture_opened") then
+				local dev_name = ModSettingGet("evaisa.mp.mic_device_name") or ""
+				voicechat.open_capture(dev_name ~= "" and dev_name or nil)
+				GameAddFlagRun("evaisa.mp.voicechat_capture_opened")
+			end
+			if GlobalsGetValue("evaisa.mp.request_mic_test_toggle") == "1" then
+				GlobalsSetValue("evaisa.mp.request_mic_test_toggle", "0")
+				if vc_test ~= nil then
+					vc_test.toggle_mic_test()
+				end
+			end
+			if vc_test ~= nil then
+				GlobalsSetValue("evaisa.mp.mic_test_active", vc_test.is_mic_testing() and "1" or "0")
+			end
+			local vc_mic_testing = vc_test ~= nil and vc_test.is_mic_testing()
+			local mic_above_threshold = get_mic_above_threshold()
+			local chunk = voicechat.capture_tick(vc_mic_testing and mic_above_threshold)
+			if chunk ~= nil and vc_mic_testing then
+				vc_test.loopback_receive(chunk)
+			end
+			if vc_test ~= nil then
+				vc_test.update()
+			end
+			GlobalsSetValue("evaisa.mp.mic_level", tostring(voicechat.get_mic_level()))
+		end
+	end
+
 
 	function OnPausedChanged(paused, is_wand_pickup)
 		local players = EntityGetWithTag("player_unit") or {}
@@ -673,7 +716,49 @@ if(not failed_to_load)then
 		print("Received message: " .. tostring(event) .. " with content: " .. tostring(message) .. " from user: " .. tostring(user))
 		try(function()
 			if (event == "voice" and message ~= nil and voicechat ~= nil) then
-				voicechat.play_voice(message.pcm, message.x, message.y)
+				if lobby_gamemode ~= nil and lobby_gamemode.user_can_speak and not lobby_gamemode.user_can_speak(user) then
+					return
+				end
+				local global_vol = tonumber(ModSettingGet("evaisa.mp.voicechat_volume")) or 1.0
+				local player_vol = tonumber(ModSettingGet("evaisa.mp.player_vol_" .. tostring(user))) or 1.0
+				local vx, vy = message.x, message.y
+				if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_voice_position then
+					local ox, oy = lobby_gamemode.get_voice_position(user)
+					if ox ~= nil then vx, vy = ox, oy end
+				end
+				voicechat.play_voice(message.pcm, vx, vy, global_vol, player_vol)
+
+				local smallfolk = dofile_once("mods/evaisa.mp/lib/smallfolk.lua")
+				local raw = GlobalsGetValue("evaisa.mp.speaking_players", "")
+				local speaking = (raw ~= "" and smallfolk.loads(raw)) or {}
+				local user_str = tostring(user)
+				if speaking[user_str] == nil then
+					local name = ""
+					if lobby_code ~= nil then
+						local members = steam_utils.getLobbyMembers(lobby_code, true)
+						for _, m in pairs(members) do
+							if tostring(m.id) == user_str then
+								name = tostring(m.name)
+								break
+							end
+						end
+					end
+					speaking[user_str] = { name = name, frame = GameGetFrameNum(), level = 0.0 }
+				else
+					speaking[user_str].frame = GameGetFrameNum()
+				end
+				local n = #message.pcm / 2
+				local sum_sq = 0.0
+				for i = 1, #message.pcm, 2 do
+					local lo = message.pcm:byte(i)
+					local hi = message.pcm:byte(i + 1) or 0
+					local s = (lo + hi * 256)
+					if s >= 32768 then s = s - 65536 end
+					s = s / 32768.0
+					sum_sq = sum_sq + s * s
+				end
+				speaking[user_str].level = (n > 0) and math.sqrt(sum_sq / n) or 0
+				GlobalsSetValue("evaisa.mp.speaking_players", smallfolk.dumps(speaking))
 				return
 			end
 
@@ -959,7 +1044,7 @@ if(not failed_to_load)then
 						bindings:RegisterBinding("chat_submit2", "Noita Online [keyboard]", "Chat Send Alt", "Key_KP_ENTER", "key", false, true, false, false)
 						bindings:RegisterBinding("chat_open_kb", "Noita Online [keyboard]", "Open Chat", "", "key", false, true, false, false)
 						bindings:RegisterBinding("lobby_menu_open_kb", "Noita Online [keyboard]", "Open Lobby Menu", "", "key", false, true, false, false)
-					bindings:RegisterBinding("ptt", "Noita Online [keyboard]", "Push-to-Talk", "", "key", true, true, true, false)
+					bindings:RegisterBinding("ptt", "Noita Online [keyboard]", "Push-to-Talk", "Key_X", "key", true, true, true, false)
 						bindings:RegisterBinding("lobby_menu_open_gp", "Noita Online [gamepad]", "Open Lobby Menu", "", "button", false, false, true, false, true)
 						
 						-- loop through gamemodes
@@ -1136,22 +1221,66 @@ if(not failed_to_load)then
 							local players = EntityGetWithTag("player_unit")
 							if players ~= nil and players[1] ~= nil then
 								local px, py = EntityGetTransform(players[1])
+								if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_listener_position then
+									px, py = lobby_gamemode.get_listener_position()
+								end
 								voicechat.update_listener(px, py)
 							end
 
-							local ptt_held = vc_test_recording
-								or (bindings ~= nil and bindings:IsDown("ptt") and ModSettingGet("evaisa.mp.voicechat_enabled"))
+							local vc_mic_testing = vc_test ~= nil and vc_test.is_mic_testing()
+							local mic_above_threshold = get_mic_above_threshold()
+							local my_id = steam_utils.getSteamID()
+							local can_speak = lobby_gamemode == nil or lobby_gamemode.user_can_speak == nil or lobby_gamemode.user_can_speak(my_id)
+							local ptt_held = can_speak and (
+								vc_test_recording
+								or (vc_mic_testing and mic_above_threshold)
+								or (bindings ~= nil and bindings:IsDown("ptt") and ModSettingGet("evaisa.mp.voicechat_enabled") and mic_above_threshold)
+								or (ModSettingGet("evaisa.mp.voicechat_vad_mode") and ModSettingGet("evaisa.mp.voicechat_enabled")
+									and mic_above_threshold)
+							)
 							local chunk = voicechat.capture_tick(ptt_held)
 							if chunk ~= nil then
 								local px, py = 0, 0
 								if players ~= nil and players[1] ~= nil then
 									px, py = EntityGetTransform(players[1])
 								end
-								if vc_test ~= nil and vc_test.is_open() then
+								if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_voice_position then
+									local ox, oy = lobby_gamemode.get_voice_position(steam_utils.getSteamID())
+									if ox ~= nil then px, py = ox, oy end
+								end
+								if vc_mic_testing then
+									vc_test.loopback_receive(chunk)
+								elseif vc_test ~= nil and vc_test.is_open() then
 									vc_test.loopback_receive(chunk)
 								else
 									steamutils.send("voice", {pcm = chunk, x = px, y = py},
 										steam_utils.messageTypes.OtherPlayers, lobby_code, false, false)
+									local my_id = steam_utils.getSteamID()
+									if my_id ~= nil then
+										local sf2 = dofile_once("mods/evaisa.mp/lib/smallfolk.lua")
+										local raw2 = GlobalsGetValue("evaisa.mp.speaking_players", "")
+										local sp = (raw2 ~= "" and sf2.loads(raw2)) or {}
+										local id_str = tostring(my_id)
+										local n = #chunk / 2
+										local sum_sq = 0.0
+										for ci = 1, #chunk, 2 do
+											local lo = chunk:byte(ci)
+											local hi = chunk:byte(ci + 1) or 0
+											local s = (lo + hi * 256)
+											if s >= 32768 then s = s - 65536 end
+											s = s / 32768.0
+											sum_sq = sum_sq + s * s
+										end
+										local lvl = (n > 0) and math.sqrt(sum_sq / n) or 0
+										if sp[id_str] == nil then
+											sp[id_str] = { name = steamutils.getTranslatedPersonaName(my_id) or "", frame = GameGetFrameNum(), level = lvl, is_local = true }
+										else
+											sp[id_str].frame = GameGetFrameNum()
+											sp[id_str].level = lvl
+											sp[id_str].is_local = true
+										end
+										GlobalsSetValue("evaisa.mp.speaking_players", sf2.dumps(sp))
+									end
 								end
 							end
 
@@ -1166,6 +1295,10 @@ if(not failed_to_load)then
 							vc_test.toggle_window()
 						end
 						vc_test.update()
+					end
+
+					if voicechat ~= nil then
+						dofile("mods/evaisa.mp/files/scripts/voice_hud.lua")
 					end
 				end
 			end
