@@ -1222,7 +1222,8 @@ if(not failed_to_load)then
 							if players ~= nil and players[1] ~= nil then
 								local px, py = EntityGetTransform(players[1])
 								if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_listener_position then
-									px, py = lobby_gamemode.get_listener_position()
+									local lx, ly = lobby_gamemode.get_listener_position()
+									if lx ~= nil then px, py = lx, ly end
 								end
 								voicechat.update_listener(px, py)
 							end
@@ -1239,6 +1240,17 @@ if(not failed_to_load)then
 									and mic_above_threshold)
 							)
 							local chunk = voicechat.capture_tick(ptt_held)
+							if not can_speak and my_id ~= nil then
+								local sf2 = dofile_once("mods/evaisa.mp/lib/smallfolk.lua")
+								local raw2 = GlobalsGetValue("evaisa.mp.speaking_players", "")
+								if raw2 ~= "" then
+									local sp = sf2.loads(raw2)
+									if sp[tostring(my_id)] ~= nil then
+										sp[tostring(my_id)] = nil
+										GlobalsSetValue("evaisa.mp.speaking_players", sf2.dumps(sp))
+									end
+								end
+							end
 							if chunk ~= nil then
 								local px, py = 0, 0
 								if players ~= nil and players[1] ~= nil then
