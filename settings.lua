@@ -72,6 +72,22 @@ mod_settings =
 		_folded = true,
 		settings = {
 		}
+	},
+	{
+		category_id = "voicechat",
+		ui_name = "Voice Chat",
+		ui_description = "Configure voice chat settings.",
+		foldable = true,
+		_folded = true,
+		settings = {
+			{
+				id = "voicechat_enabled",
+				ui_name = "Enable Voice Chat",
+				ui_description = "Enable proximity voice chat.",
+				value_default = true,
+				scope = MOD_SETTING_SCOPE_RUNTIME,
+			},
+		}
 	}
 
 }
@@ -267,6 +283,71 @@ function ModSettingsGui(gui, in_main_menu)
 		end
 	end
 
+	local vc_cat = nil
+	for k, v in ipairs(mod_settings) do
+		if v.category_id == "voicechat" then
+			vc_cat = v
+			break
+		end
+	end
+
+	if vc_cat ~= nil and not in_main_menu then
+		local raw_devices = GlobalsGetValue("evaisa.mp.audio_devices", "")
+		local smallfolk = dofile_once("mods/evaisa.mp/lib/smallfolk.lua")
+		local devices = (raw_devices ~= "" and smallfolk.loads(raw_devices)) or {}
+
+		local saved_name = ModSettingGet("evaisa.mp.mic_device_name") or ""
+		local display_name = saved_name ~= "" and saved_name or "Default"
+
+		local mic_setting_exists = false
+		for _, s in ipairs(vc_cat.settings) do
+			if s.id == "mic_device" then
+				mic_setting_exists = true
+				break
+			end
+		end
+
+		if not mic_setting_exists then
+			table.insert(vc_cat.settings, {
+				id = "mic_device",
+				ui_name = "Microphone",
+				ui_description = "Select the microphone to use for voice chat.",
+				ui_fn = mod_setting_button,
+				clicked_callback = function(mod_id, setting, value)
+					local raw = GlobalsGetValue("evaisa.mp.audio_devices", "")
+					local sf = dofile_once("mods/evaisa.mp/lib/smallfolk.lua")
+					local devs = (raw ~= "" and sf.loads(raw)) or {}
+					local cur_name = ModSettingGet("evaisa.mp.mic_device_name") or ""
+					local cur_idx = 0
+					for i, name in ipairs(devs) do
+						if name == cur_name then
+							cur_idx = i
+							break
+						end
+					end
+					local next_idx = cur_idx + 1
+					if next_idx > #devs then
+						next_idx = 0
+					end
+					if next_idx == 0 then
+						ModSettingSet("evaisa.mp.mic_device_name", "")
+						GlobalsSetValue("evaisa.mp.mic_device_changed", "1")
+					else
+						ModSettingSet("evaisa.mp.mic_device_name", devs[next_idx])
+						GlobalsSetValue("evaisa.mp.mic_device_changed", "1")
+					end
+				end,
+				right_clicked_callback = function(mod_id, setting, value)
+					ModSettingSet("evaisa.mp.mic_device_name", "")
+					GlobalsSetValue("evaisa.mp.mic_device_changed", "1")
+				end,
+				handler_callback = function(mod_id, setting)
+					local name = ModSettingGet("evaisa.mp.mic_device_name") or ""
+					return "[" .. (name ~= "" and name or "Default") .. "]"
+				end,
+			})
+		end
+	end
 
 	mod_settings_gui(mod_id, mod_settings, gui, in_main_menu)
 

@@ -335,6 +335,8 @@ if(not failed_to_load)then
 	--zstd = zstandard:new()
 	delay = dofile("mods/evaisa.mp/lib/delay.lua")
 	streaming = dofile("mods/evaisa.mp/lib/streaming.lua")
+	voicechat = dofile("mods/evaisa.mp/lib/voicechat.lua")
+	vc_test = dofile("mods/evaisa.mp/files/scripts/voicechat_test.lua")
 
 	local profiler_ui = dofile("mods/evaisa.mp/lib/profiler_ui.lua")
 
@@ -670,6 +672,11 @@ if(not failed_to_load)then
 	function TryHandleMessage(lobby_code, event, message, user, ignore)
 		print("Received message: " .. tostring(event) .. " with content: " .. tostring(message) .. " from user: " .. tostring(user))
 		try(function()
+			if (event == "voice" and message ~= nil and voicechat ~= nil) then
+				voicechat.play_voice(message.pcm, message.x, message.y)
+				return
+			end
+
 			if (lobby_gamemode ~= nil) then
 				local owner = steam.matchmaking.getLobbyOwner(lobby_code)
 		
@@ -952,10 +959,7 @@ if(not failed_to_load)then
 						bindings:RegisterBinding("chat_submit2", "Noita Online [keyboard]", "Chat Send Alt", "Key_KP_ENTER", "key", false, true, false, false)
 						bindings:RegisterBinding("chat_open_kb", "Noita Online [keyboard]", "Open Chat", "", "key", false, true, false, false)
 						bindings:RegisterBinding("lobby_menu_open_kb", "Noita Online [keyboard]", "Open Lobby Menu", "", "key", false, true, false, false)
-					
-						-- gamepad bindings
-						bindings:RegisterBinding("chat_submit_gp", "Noita Online [gamepad]", "Chat Send", "", "button", false, false, true, false, true)
-						bindings:RegisterBinding("chat_open_gp", "Noita Online [gamepad]", "Open Chat", "", "button", false, false, true, false, true)
+					bindings:RegisterBinding("ptt", "Noita Online [keyboard]", "Push-to-Talk", "", "key", true, true, true, false)
 						bindings:RegisterBinding("lobby_menu_open_gp", "Noita Online [gamepad]", "Open Lobby Menu", "", "button", false, false, true, false, true)
 						
 						-- loop through gamemodes
@@ -1114,7 +1118,54 @@ if(not failed_to_load)then
 							lobby_gamemode.lobby_update(lobby_code)
 						end
 
-						ReceiveMessages(not game_in_progress)
+						if(voicechat ~= nil) then
+							if GlobalsGetValue("evaisa.mp.mic_device_changed", "0") == "1" then
+								GlobalsSetValue("evaisa.mp.mic_device_changed", "0")
+								local dev_name = ModSettingGet("evaisa.mp.mic_device_name") or ""
+								voicechat.open_capture(dev_name ~= "" and dev_name or nil)
+							end
+
+							local vc_test_recording = vc_test ~= nil and vc_test.is_open() and voicechat.is_recording()
+
+							if not GameHasFlagRun("evaisa.mp.voicechat_capture_opened") and (ModSettingGet("evaisa.mp.voicechat_enabled") or vc_test_recording) then
+								GameAddFlagRun("evaisa.mp.voicechat_capture_opened")
+								local dev_name = ModSettingGet("evaisa.mp.mic_device_name") or ""
+								voicechat.open_capture(dev_name ~= "" and dev_name or nil)
+							end
+
+							local players = EntityGetWithTag("player_unit")
+							if players ~= nil and players[1] ~= nil then
+								local px, py = EntityGetTransform(players[1])
+								voicechat.update_listener(px, py)
+							end
+
+							local ptt_held = vc_test_recording
+								or (bindings ~= nil and bindings:IsDown("ptt") and ModSettingGet("evaisa.mp.voicechat_enabled"))
+							local chunk = voicechat.capture_tick(ptt_held)
+							if chunk ~= nil then
+								local px, py = 0, 0
+								if players ~= nil and players[1] ~= nil then
+									px, py = EntityGetTransform(players[1])
+								end
+								if vc_test ~= nil and vc_test.is_open() then
+									vc_test.loopback_receive(chunk)
+								else
+									steamutils.send("voice", {pcm = chunk, x = px, y = py},
+										steam_utils.messageTypes.OtherPlayers, lobby_code, false, false)
+								end
+							end
+
+							voicechat.update()
+						end
+
+							ReceiveMessages(not game_in_progress)
+					end
+
+					if vc_test ~= nil then
+						if input ~= nil and input:IsKeyDown("left ctrl") and input:IsKeyDown("left shift") and input:WasKeyPressed("v") then
+							vc_test.toggle_window()
+						end
+						vc_test.update()
 					end
 				end
 			end
@@ -1769,6 +1820,10 @@ if(not failed_to_load)then
 	end
 
 	function OnPlayerSpawned(player)
+
+		if voicechat ~= nil then
+			voicechat.enumerate_devices()
+		end
 
 		-- make popup
 		local streaming, streaming_app = streaming.IsStreaming()

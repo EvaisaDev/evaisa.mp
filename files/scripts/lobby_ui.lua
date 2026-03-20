@@ -323,8 +323,10 @@ end
 initial_refreshes = initial_refreshes or 10
 
 if(initial_refreshes > 0)then
-	refreshLobbies()
 	initial_refreshes = initial_refreshes - 1
+	if(initial_refreshes == 0)then
+		refreshLobbies()
+	end
 end
 
 local default_lobby_menus = {
