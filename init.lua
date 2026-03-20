@@ -713,15 +713,16 @@ if(not failed_to_load)then
 	end
 
 	function TryHandleMessage(lobby_code, event, message, user, ignore)
-		print("Received message: " .. tostring(event) .. " with content: " .. tostring(message) .. " from user: " .. tostring(user))
+		old_print("Received message: " .. tostring(event) .. " with content: " .. tostring(message) .. " from user: " .. tostring(user))
 		try(function()
 			if (event == "voice" and message ~= nil and voicechat ~= nil) then
 				if lobby_gamemode ~= nil and lobby_gamemode.user_can_speak and not lobby_gamemode.user_can_speak(user) then
+					old_print("Is this shit even being received?")
 					return
 				end
 				local global_vol = tonumber(ModSettingGet("evaisa.mp.voicechat_volume")) or 1.0
 				local player_vol = tonumber(ModSettingGet("evaisa.mp.player_vol_" .. tostring(user))) or 1.0
-				local vx, vy = message.x, message.y
+				local vx, vy = message.x or 0, message.y or 0
 				if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_voice_position then
 					local ox, oy = lobby_gamemode.get_voice_position(user)
 					if ox ~= nil then vx, vy = ox, oy end
@@ -1218,15 +1219,12 @@ if(not failed_to_load)then
 								voicechat.open_capture(dev_name ~= "" and dev_name or nil)
 							end
 
-							local players = EntityGetWithTag("player_unit")
-							if players ~= nil and players[1] ~= nil then
-								local px, py = EntityGetTransform(players[1])
-								if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_listener_position then
-									local lx, ly = lobby_gamemode.get_listener_position()
-									if lx ~= nil then px, py = lx, ly end
-								end
-								voicechat.update_listener(px, py)
+							local lx, ly = lobby_gamemode.get_listener_position()
+							if lx == nil then 
+								lx, ly = 0, 0
 							end
+							voicechat.update_listener(lx, ly)
+
 
 							local vc_mic_testing = vc_test ~= nil and vc_test.is_mic_testing()
 							local mic_above_threshold = get_mic_above_threshold()
@@ -1260,13 +1258,16 @@ if(not failed_to_load)then
 									local ox, oy = lobby_gamemode.get_voice_position(steam_utils.getSteamID())
 									if ox ~= nil then px, py = ox, oy end
 								end
+								
 								if vc_mic_testing then
 									vc_test.loopback_receive(chunk)
 								elseif vc_test ~= nil and vc_test.is_open() then
 									vc_test.loopback_receive(chunk)
 								else
+									old_print("Captured voice chunk of size: " .. tostring(#chunk) .. " bytes, mic level: " .. tostring(voicechat.get_mic_level()) .. ", above threshold: " .. tostring(mic_above_threshold) .. ", ptt held: " .. tostring(ptt_held))
+								
 									steamutils.send("voice", {pcm = chunk, x = px, y = py},
-										steam_utils.messageTypes.OtherPlayers, lobby_code, false, false)
+										steam_utils.messageTypes.OtherPlayers, lobby_code, true, true)
 									local my_id = steam_utils.getSteamID()
 									if my_id ~= nil then
 										local sf2 = dofile_once("mods/evaisa.mp/lib/smallfolk.lua")
