@@ -713,11 +713,10 @@ if(not failed_to_load)then
 	end
 
 	function TryHandleMessage(lobby_code, event, message, user, ignore)
-		old_print("Received message: " .. tostring(event) .. " with content: " .. tostring(message) .. " from user: " .. tostring(user))
+		print("Received message: " .. tostring(event) .. " with content: " .. tostring(message) .. " from user: " .. tostring(user))
 		try(function()
 			if (event == "voice" and message ~= nil and voicechat ~= nil) then
 				if lobby_gamemode ~= nil and lobby_gamemode.user_can_speak and not lobby_gamemode.user_can_speak(user) then
-					old_print("Is this shit even being received?")
 					return
 				end
 				local global_vol = tonumber(ModSettingGet("evaisa.mp.voicechat_volume")) or 1.0
@@ -1264,8 +1263,7 @@ if(not failed_to_load)then
 								elseif vc_test ~= nil and vc_test.is_open() then
 									vc_test.loopback_receive(chunk)
 								else
-									old_print("Captured voice chunk of size: " .. tostring(#chunk) .. " bytes, mic level: " .. tostring(voicechat.get_mic_level()) .. ", above threshold: " .. tostring(mic_above_threshold) .. ", ptt held: " .. tostring(ptt_held))
-								
+				
 									steamutils.send("voice", {pcm = chunk, x = px, y = py},
 										steam_utils.messageTypes.OtherPlayers, lobby_code, true, true)
 									local my_id = steam_utils.getSteamID()
