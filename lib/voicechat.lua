@@ -68,6 +68,7 @@ FMOD_RESULT FMOD_Channel_Set3DAttributes(FMOD_CHANNEL *channel, const FMOD_VECTO
 FMOD_RESULT FMOD_Channel_SetPaused(FMOD_CHANNEL *channel, int paused);
 FMOD_RESULT FMOD_Channel_Stop(FMOD_CHANNEL *channel);
 FMOD_RESULT FMOD_Channel_Set3DMinMaxDistance(FMOD_CHANNEL *channel, float min, float max);
+FMOD_RESULT FMOD_Channel_SetVolume(FMOD_CHANNEL *channel, float volume);
 FMOD_RESULT FMOD_Channel_IsPlaying(FMOD_CHANNEL *channel, int *isplaying);
 ]])
 
@@ -96,10 +97,8 @@ local listener_y = 0
 local VOICE_MIN_DIST = 50.0
 local VOICE_MAX_DIST = 3000.0
 
-local JITTER_PREFILL_CHUNKS = 2
-local jitter_buffer = {}
-local jitter_started = false
-local LOW_WATER_BYTES = CHUNK_BYTES * 2
+local fmod_system = nil
+local playing_voices = {}
 
 local last_mic_level = 0.0
 local gate_gain = 0.0
@@ -111,6 +110,23 @@ end
 
 local function init_sdl_audio()
     sdl.SDL_InitSubSystem(SDL_INIT_AUDIO)
+end
+
+local function init_fmod_voice_system()
+    if fmod_system ~= nil then return true end
+    local sys_ptr = ffi.new("FMOD_SYSTEM*[1]")
+    if fmod.FMOD_System_Create(sys_ptr) ~= 0 then return false end
+    fmod_system = sys_ptr[0]
+    if fmod.FMOD_System_Init(fmod_system, 32, fmod.FMOD_INIT_NORMAL_VC, nil) ~= 0 then
+        fmod_system = nil
+        return false
+    end
+    local pos = ffi.new("FMOD_VECTOR", { x = 0, y = 0, z = 0 })
+    local vel = ffi.new("FMOD_VECTOR", { x = 0, y = 0, z = 0 })
+    local fwd = ffi.new("FMOD_VECTOR", { x = 0, y = 0, z = 1 })
+    local up  = ffi.new("FMOD_VECTOR", { x = 0, y = 1, z = 0 })
+    fmod.FMOD_System_Set3DListenerAttributes(fmod_system, 0, pos, vel, fwd, up)
+    return true
 end
 
 local function open_playback()
@@ -286,41 +302,68 @@ end
 M.update_listener = function(x, y)
     listener_x = x
     listener_y = y
+    if not init_fmod_voice_system() then return end
+    local pos = ffi.new("FMOD_VECTOR", { x = x, y = y, z = 0 })
+    local vel = ffi.new("FMOD_VECTOR", { x = 0, y = 0, z = 0 })
+    local fwd = ffi.new("FMOD_VECTOR", { x = 0, y = 0, z = 1 })
+    local up  = ffi.new("FMOD_VECTOR", { x = 0, y = 1, z = 0 })
+    fmod.FMOD_System_Set3DListenerAttributes(fmod_system, 0, pos, vel, fwd, up)
 end
 
 M.play_voice = function(pcm_data, x, y, global_vol, player_vol)
-    local dx = x - listener_x
-    local dy = y - listener_y
-    local dist = math.sqrt(dx * dx + dy * dy)
-    if dist >= VOICE_MAX_DIST then return end
-    local gain
-    if dist <= VOICE_MIN_DIST then
-        gain = 1.0
-    else
-        gain = 1.0 - (dist - VOICE_MIN_DIST) / (VOICE_MAX_DIST - VOICE_MIN_DIST)
-    end
-    gain = gain * (global_vol or 1.0) * (player_vol or 1.0)
-    table.insert(jitter_buffer, { pcm = pcm_data, gain = gain })
-end
+    if not init_fmod_voice_system() then return end
 
-M.update = function()
-    if #jitter_buffer == 0 then
-        jitter_started = false
+    local data_len = #pcm_data
+    local c_buf = ffi.new("uint8_t[?]", data_len)
+    ffi.copy(c_buf, pcm_data, data_len)
+
+    local exinfo = ffi.new("FMOD_EXINFO_VOICE")
+    exinfo.cbsize = ffi.sizeof("FMOD_EXINFO_VOICE")
+    exinfo.length = data_len
+    exinfo.fileoffset = 0
+    exinfo.numchannels = CHANNELS
+    exinfo.defaultfrequency = SAMPLE_RATE
+    exinfo.format = FMOD_SOUND_FORMAT_PCM16
+
+    local mode = bit.bor(fmod.FMOD_LOOP_OFF_VC, fmod.FMOD_OPENMEMORY_VC, fmod.FMOD_OPENRAW_VC, fmod.FMOD_3D_VC)
+
+    local sound_ptr = ffi.new("FMOD_SOUND*[1]")
+    if fmod.FMOD_System_CreateSound(fmod_system, c_buf, mode, exinfo, sound_ptr) ~= 0 then return end
+
+    local ch_ptr = ffi.new("FMOD_CHANNEL*[1]")
+    if fmod.FMOD_System_PlaySound(fmod_system, sound_ptr[0], nil, 1, ch_ptr) ~= 0 then
+        fmod.FMOD_Sound_Release(sound_ptr[0])
         return
     end
 
-    if not jitter_started then
-        if #jitter_buffer < JITTER_PREFILL_CHUNKS then return end
-        jitter_started = true
+    local ch = ch_ptr[0]
+    local pos = ffi.new("FMOD_VECTOR", { x = x, y = y, z = 0 })
+    local vel = ffi.new("FMOD_VECTOR", { x = 0, y = 0, z = 0 })
+    fmod.FMOD_Channel_Set3DAttributes(ch, pos, vel)
+    fmod.FMOD_Channel_Set3DMinMaxDistance(ch, VOICE_MIN_DIST, VOICE_MAX_DIST)
+    fmod.FMOD_Channel_SetVolume(ch, (global_vol or 1.0) * (player_vol or 1.0))
+    fmod.FMOD_Channel_SetPaused(ch, 0)
+
+    table.insert(playing_voices, { sound = sound_ptr[0], channel = ch })
+end
+
+M.update = function()
+    if fmod_system == nil then return end
+
+    local i = 1
+    while i <= #playing_voices do
+        local v = playing_voices[i]
+        local is_playing = ffi.new("int[1]")
+        fmod.FMOD_Channel_IsPlaying(v.channel, is_playing)
+        if is_playing[0] == 0 then
+            fmod.FMOD_Sound_Release(v.sound)
+            table.remove(playing_voices, i)
+        else
+            i = i + 1
+        end
     end
 
-    if not open_playback() then return end
-    local queued = sdl.SDL_GetQueuedAudioSize(playback_dev)
-    while queued < LOW_WATER_BYTES and #jitter_buffer > 0 do
-        local entry = table.remove(jitter_buffer, 1)
-        queue_pcm_with_gain(entry.pcm, entry.gain)
-        queued = queued + #entry.pcm
-    end
+    fmod.FMOD_System_Update(fmod_system)
 end
 
 local recording_buffer = nil
@@ -352,8 +395,16 @@ end
 
 M.cleanup = function()
     M.close_capture()
-    jitter_buffer = {}
-    jitter_started = false
+    for _, v in ipairs(playing_voices) do
+        fmod.FMOD_Channel_Stop(v.channel)
+        fmod.FMOD_Sound_Release(v.sound)
+    end
+    playing_voices = {}
+    if fmod_system ~= nil then
+        fmod.FMOD_System_Close(fmod_system)
+        fmod.FMOD_System_Release(fmod_system)
+        fmod_system = nil
+    end
     if playback_dev ~= 0 then
         sdl.SDL_CloseAudioDevice(playback_dev)
         playback_dev = 0
