@@ -722,11 +722,18 @@ if(not failed_to_load)then
 				local global_vol = tonumber(ModSettingGet("evaisa.mp.voicechat_volume")) or 1.0
 				local player_vol = tonumber(ModSettingGet("evaisa.mp.player_vol_" .. tostring(user))) or 1.0
 				local vx, vy = message.x or 0, message.y or 0
-				if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_voice_position then
-					local ox, oy = lobby_gamemode.get_voice_position(user)
-					if ox ~= nil then vx, vy = ox, oy end
+				if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_voice_positions then
+					local positions = lobby_gamemode.get_voice_positions(user)
+					if positions ~= nil then
+						for i, pos in ipairs(positions) do
+							local opts = lobby_gamemode.get_voice_opts and lobby_gamemode.get_voice_opts(i) or nil
+							voicechat.play_voice(message.pcm, pos[1], pos[2], global_vol, player_vol, opts)
+						end
+						goto voice_played
+					end
 				end
 				voicechat.play_voice(message.pcm, vx, vy, global_vol, player_vol)
+				::voice_played::
 
 				local smallfolk = dofile_once("mods/evaisa.mp/lib/smallfolk.lua")
 				local raw = GlobalsGetValue("evaisa.mp.speaking_players", "")
@@ -1253,9 +1260,11 @@ if(not failed_to_load)then
 								if players ~= nil and players[1] ~= nil then
 									px, py = EntityGetTransform(players[1])
 								end
-								if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_voice_position then
-									local ox, oy = lobby_gamemode.get_voice_position(steam_utils.getSteamID())
-									if ox ~= nil then px, py = ox, oy end
+if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_voice_positions then
+						local positions = lobby_gamemode.get_voice_positions(steam_utils.getSteamID())
+						if positions ~= nil and positions[1] ~= nil then
+							px, py = positions[1][1], positions[1][2]
+						end
 								end
 								
 								if vc_mic_testing then
@@ -1266,6 +1275,16 @@ if(not failed_to_load)then
 				
 									steamutils.send("voice", {pcm = chunk, x = px, y = py},
 										steam_utils.messageTypes.OtherPlayers, lobby_code, true, true)
+									if ModSettingGet("evaisa.mp.voicechat_intercom_monitor") and lobby_gamemode ~= nil and lobby_gamemode.get_voice_positions then
+										local monitor_positions = lobby_gamemode.get_voice_positions(steam_utils.getSteamID())
+										if monitor_positions ~= nil then
+											local global_vol = tonumber(ModSettingGet("evaisa.mp.voicechat_volume")) or 1.0
+											for i, pos in ipairs(monitor_positions) do
+												local opts = lobby_gamemode.get_voice_opts and lobby_gamemode.get_voice_opts(i) or nil
+												voicechat.play_voice(chunk, pos[1], pos[2], global_vol, 1.0, opts)
+											end
+										end
+									end
 									local my_id = steam_utils.getSteamID()
 									if my_id ~= nil then
 										local sf2 = dofile_once("mods/evaisa.mp/lib/smallfolk.lua")

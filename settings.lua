@@ -127,6 +127,13 @@ mod_settings =
 				value_display_formatting = " $0%",
 				scope = MOD_SETTING_SCOPE_RUNTIME,
 			},
+			{
+				id = "voicechat_intercom_monitor",
+				ui_name = "Intercom Monitor",
+				ui_description = "Hear your own voice through the speakers when speaking into an intercom.",
+				value_default = false,
+				scope = MOD_SETTING_SCOPE_RUNTIME,
+			},
 		}
 	}
 

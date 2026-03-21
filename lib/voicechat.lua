@@ -70,6 +70,11 @@ FMOD_RESULT FMOD_Channel_Stop(FMOD_CHANNEL *channel);
 FMOD_RESULT FMOD_Channel_Set3DMinMaxDistance(FMOD_CHANNEL *channel, float min, float max);
 FMOD_RESULT FMOD_Channel_SetVolume(FMOD_CHANNEL *channel, float volume);
 FMOD_RESULT FMOD_Channel_IsPlaying(FMOD_CHANNEL *channel, int *isplaying);
+typedef struct FMOD_DSP FMOD_DSP;
+FMOD_RESULT FMOD_System_CreateDSPByType(FMOD_SYSTEM *system, int type, FMOD_DSP **dsp);
+FMOD_RESULT FMOD_Channel_AddDSP(FMOD_CHANNEL *channel, int index, FMOD_DSP *dsp);
+FMOD_RESULT FMOD_DSP_SetParameterFloat(FMOD_DSP *dsp, int index, float value);
+FMOD_RESULT FMOD_DSP_Release(FMOD_DSP *dsp);
 ]])
 
 local sdl = ffi.load("SDL2")
@@ -99,6 +104,22 @@ local VOICE_MAX_DIST = 3000.0
 
 local fmod_system = nil
 local playing_voices = {}
+local pending_voices = {}
+local update_tick = 0
+
+local function resample_pcm(pcm_data, target_rate)
+    if target_rate == SAMPLE_RATE then return pcm_data end
+    local factor = SAMPLE_RATE / target_rate
+    local n_in = #pcm_data / 2
+    local n_out = math.max(1, math.floor(n_in / factor))
+    local in_buf = ffi.new("int16_t[?]", n_in)
+    ffi.copy(in_buf, pcm_data, #pcm_data)
+    local out_buf = ffi.new("int16_t[?]", n_out)
+    for i = 0, n_out - 1 do
+        out_buf[i] = in_buf[math.floor(i * factor)]
+    end
+    return ffi.string(out_buf, n_out * 2)
+end
 
 local last_mic_level = 0.0
 local gate_gain = 0.0
@@ -310,19 +331,33 @@ M.update_listener = function(x, y)
     fmod.FMOD_System_Set3DListenerAttributes(fmod_system, 0, pos, vel, fwd, up)
 end
 
-M.play_voice = function(pcm_data, x, y, global_vol, player_vol)
+M.play_voice = function(pcm_data, x, y, global_vol, player_vol, opts)
+    opts = opts or {}
+    local delay = opts.delay_frames or 0
+    if delay > 0 then
+        table.insert(pending_voices, {
+            pcm = pcm_data, x = x, y = y,
+            global_vol = global_vol, player_vol = player_vol,
+            opts = opts,
+            play_at = update_tick + delay
+        })
+        return
+    end
+
     if not init_fmod_voice_system() then return end
 
-    local data_len = #pcm_data
+    local sample_rate = opts.sample_rate or SAMPLE_RATE
+    local actual_pcm = (sample_rate ~= SAMPLE_RATE) and resample_pcm(pcm_data, sample_rate) or pcm_data
+    local data_len = #actual_pcm
     local c_buf = ffi.new("uint8_t[?]", data_len)
-    ffi.copy(c_buf, pcm_data, data_len)
+    ffi.copy(c_buf, actual_pcm, data_len)
 
     local exinfo = ffi.new("FMOD_EXINFO_VOICE")
     exinfo.cbsize = ffi.sizeof("FMOD_EXINFO_VOICE")
     exinfo.length = data_len
     exinfo.fileoffset = 0
     exinfo.numchannels = CHANNELS
-    exinfo.defaultfrequency = SAMPLE_RATE
+    exinfo.defaultfrequency = sample_rate
     exinfo.format = FMOD_SOUND_FORMAT_PCM16
 
     local mode = bit.bor(fmod.FMOD_LOOP_OFF_VC, fmod.FMOD_OPENMEMORY_VC, fmod.FMOD_OPENRAW_VC, fmod.FMOD_3D_VC)
@@ -337,18 +372,51 @@ M.play_voice = function(pcm_data, x, y, global_vol, player_vol)
     end
 
     local ch = ch_ptr[0]
-    local pos = ffi.new("FMOD_VECTOR", { x = x, y = y, z = 0 })
+    local spos = ffi.new("FMOD_VECTOR", { x = x, y = y, z = 0 })
     local vel = ffi.new("FMOD_VECTOR", { x = 0, y = 0, z = 0 })
-    fmod.FMOD_Channel_Set3DAttributes(ch, pos, vel)
+    fmod.FMOD_Channel_Set3DAttributes(ch, spos, vel)
     fmod.FMOD_Channel_Set3DMinMaxDistance(ch, VOICE_MIN_DIST, VOICE_MAX_DIST)
     fmod.FMOD_Channel_SetVolume(ch, (global_vol or 1.0) * (player_vol or 1.0))
-    fmod.FMOD_Channel_SetPaused(ch, 0)
 
-    table.insert(playing_voices, { sound = sound_ptr[0], channel = ch })
+    local entry = { sound = sound_ptr[0], channel = ch }
+
+    if opts.reverb then
+        local dsp_ptr = ffi.new("FMOD_DSP*[1]")
+        if fmod.FMOD_System_CreateDSPByType(fmod_system, 18, dsp_ptr) == 0 then
+            local dsp = dsp_ptr[0]
+            fmod.FMOD_DSP_SetParameterFloat(dsp, 0,  opts.reverb_decay  or 1200.0)
+            fmod.FMOD_DSP_SetParameterFloat(dsp, 1,  opts.reverb_early  or 15.0)
+            fmod.FMOD_DSP_SetParameterFloat(dsp, 2,  opts.reverb_late   or 30.0)
+            fmod.FMOD_DSP_SetParameterFloat(dsp, 9,  opts.reverb_hicut  or 4000.0)
+            fmod.FMOD_DSP_SetParameterFloat(dsp, 11, opts.reverb_wet    or -3.0)
+            fmod.FMOD_DSP_SetParameterFloat(dsp, 12, opts.reverb_dry    or 0.0)
+            fmod.FMOD_Channel_AddDSP(ch, 0, dsp)
+            entry.dsp = dsp
+        end
+    end
+
+    fmod.FMOD_Channel_SetPaused(ch, 0)
+    table.insert(playing_voices, entry)
 end
 
 M.update = function()
     if fmod_system == nil then return end
+
+    update_tick = update_tick + 1
+
+    local pi = 1
+    while pi <= #pending_voices do
+        local pv = pending_voices[pi]
+        if update_tick >= pv.play_at then
+            local fire_opts = {}
+            for k, v in pairs(pv.opts) do fire_opts[k] = v end
+            fire_opts.delay_frames = 0
+            M.play_voice(pv.pcm, pv.x, pv.y, pv.global_vol, pv.player_vol, fire_opts)
+            table.remove(pending_voices, pi)
+        else
+            pi = pi + 1
+        end
+    end
 
     local i = 1
     while i <= #playing_voices do
@@ -356,6 +424,7 @@ M.update = function()
         local is_playing = ffi.new("int[1]")
         fmod.FMOD_Channel_IsPlaying(v.channel, is_playing)
         if is_playing[0] == 0 then
+            if v.dsp then fmod.FMOD_DSP_Release(v.dsp) end
             fmod.FMOD_Sound_Release(v.sound)
             table.remove(playing_voices, i)
         else
@@ -395,8 +464,10 @@ end
 
 M.cleanup = function()
     M.close_capture()
+    pending_voices = {}
     for _, v in ipairs(playing_voices) do
         fmod.FMOD_Channel_Stop(v.channel)
+        if v.dsp then fmod.FMOD_DSP_Release(v.dsp) end
         fmod.FMOD_Sound_Release(v.sound)
     end
     playing_voices = {}
