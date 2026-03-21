@@ -1051,7 +1051,7 @@ if(not failed_to_load)then
 						bindings:RegisterBinding("chat_submit2", "Noita Online [keyboard]", "Chat Send Alt", "Key_KP_ENTER", "key", false, true, false, false)
 						bindings:RegisterBinding("chat_open_kb", "Noita Online [keyboard]", "Open Chat", "", "key", false, true, false, false)
 						bindings:RegisterBinding("lobby_menu_open_kb", "Noita Online [keyboard]", "Open Lobby Menu", "", "key", false, true, false, false)
-					bindings:RegisterBinding("ptt", "Noita Online [keyboard]", "Push-to-Talk", "Key_X", "key", true, true, true, false)
+					bindings:RegisterBinding("ptt", "Noita Online [keyboard]", "Push-to-Talk", "Key_x", "key", true, true, true, false)
 						bindings:RegisterBinding("lobby_menu_open_gp", "Noita Online [gamepad]", "Open Lobby Menu", "", "button", false, false, true, false, true)
 						
 						-- loop through gamemodes
