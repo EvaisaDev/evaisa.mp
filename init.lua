@@ -684,6 +684,7 @@ if(not failed_to_load)then
 	gamemode_settings = gamemode_settings or {}
 
 	dofile("mods/evaisa.mp/files/scripts/lobby_handler.lua")
+	dofile_once("mods/evaisa.mp/files/scripts/hub_handler.lua")
 	dofile_once("mods/evaisa.mp/files/scripts/utils.lua")
 	dofile_once("data/scripts/lib/utilities.lua")
 	input = nil 
@@ -1093,6 +1094,7 @@ if(not failed_to_load)then
 						reset_online_ui_for_arena()
 					else
 						dofile("mods/evaisa.mp/files/scripts/lobby_ui.lua")
+						dofile("mods/evaisa.mp/files/scripts/hub_ui.lua")
 						dofile("mods/evaisa.mp/files/scripts/chat_ui.lua")
 					end
 			

@@ -14,6 +14,9 @@ status = {
 	creating_lobby = 3,
 	joining_lobby = 4,
 	disconnected = 5,
+	hub = 6,
+	creating_hub = 7,
+	joining_hub = 8,
 }
 
 GuiOptionsAdd( menu_gui, GUI_OPTION.NoPositionTween )
@@ -967,6 +970,16 @@ local windows = {
 				end
 
 				GuiText(menu_gui, 2, 0, " ")
+
+				if(GuiButton(menu_gui, NewID(), 0, 0, GameTextGetTranslatedOrNot("$hub_create")))then
+					menu_status = status.creating_hub
+				end
+
+				if(GuiButton(menu_gui, NewID(), 0, 0, GameTextGetTranslatedOrNot("$hub_join")))then
+					menu_status = status.joining_hub
+				end
+
+				GuiText(menu_gui, 2, 0, " ")
 				if(GuiButton(menu_gui, NewID(), 0, 0, GameTextGetTranslatedOrNot("$mp_refresh_lobby_list")))then
 					refreshLobbies()
 				end
@@ -1353,7 +1366,12 @@ local windows = {
 				gamemode_settings = {}
 				initial_refreshes = 10
 				invite_menu_open = false
-				menu_status = status.main_menu
+				if hub_state ~= nil and hub_source_lobby then
+					hub_source_lobby = false
+					menu_status = status.hub
+				else
+					menu_status = status.main_menu
+				end
 				show_lobby_code = false
 				lobby_code = nil
 				banned_members = {}
@@ -1680,12 +1698,21 @@ local windows = {
 
 				if(owner == steam_utils.getSteamID())then
 
+					local hub_blocks_start = hub_state ~= nil
+						and hub_state.settings
+						and hub_state.settings.only_mods_can_start
+						and not hub_is_owner_or_mod()
+
 					local start_string = GameTextGetTranslatedOrNot("$mp_start_game")
 					if(steam.matchmaking.getLobbyData(lobby_code, "in_progress") == "true")then
 						start_string = GameTextGetTranslatedOrNot("$mp_restart_game")
 					end
 
-					if(GuiButton(menu_gui, NewID("lobby_start_button"), 0, 0, start_string ))then
+					if(hub_blocks_start)then
+						GuiColorSetForNextWidget(menu_gui, 0.5, 0.5, 0.5, 1)
+						GuiText(menu_gui, 0, 0, start_string)
+						GuiTooltip(menu_gui, GameTextGetTranslatedOrNot("$hub_only_mods_start"), "")
+					elseif(GuiButton(menu_gui, NewID("lobby_start_button"), 0, 0, start_string))then
 						gui_closed = not gui_closed
 						invite_menu_open = false
 
@@ -1703,7 +1730,7 @@ local windows = {
 							steam_utils.send("start", start_data, steam_utils.messageTypes.AllPlayers, lobby_code, true, true, 0)
 						end
 						steam_utils.TrySetLobbyData(lobby_code, "in_progress", "true")
-					end
+				end
 				end
 
 				spectating = steamutils.IsSpectator(lobby_code)
@@ -2996,6 +3023,8 @@ if (not IsPaused()) then
 		GuiZSetForNextWidget(menu_gui, 100)
 		GuiText(menu_gui, screen_width / 2 - text_width / 2, screen_height - text_height, version_string)
 		--print(version_string)
-		windows[menu_status].func()
+		if windows[menu_status] then
+			windows[menu_status].func()
+		end
 	end
 end
