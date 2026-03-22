@@ -716,7 +716,7 @@ if(not failed_to_load)then
 	function TryHandleMessage(lobby_code, event, message, user, ignore)
 		print("Received message: " .. tostring(event) .. " with content: " .. tostring(message) .. " from user: " .. tostring(user))
 		try(function()
-			if (event == "voice" and message ~= nil and voicechat ~= nil) then
+			if (event == "voice" and message ~= nil and voicechat ~= nil and ModSettingGet("evaisa.mp.voicechat_enabled")) then
 				if lobby_gamemode ~= nil and lobby_gamemode.user_can_speak and not lobby_gamemode.user_can_speak(user) then
 					return
 				end
