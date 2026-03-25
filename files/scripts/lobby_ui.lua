@@ -964,19 +964,33 @@ local windows = {
 				if(GuiButton(menu_gui, NewID(), 0, 0, GameTextGetTranslatedOrNot("$mp_create_lobby")))then
 					menu_status = status.creating_lobby
 				end
+				do
+					local _, _, _, _, _, _, _, dx, dy = GuiGetPreviousWidgetInfo(menu_gui)
+					local hub_create_text = GameTextGetTranslatedOrNot("$hub_create")
+					local tw = GuiGetTextDimensions(menu_gui, hub_create_text)
+					GuiLayoutBeginLayer(menu_gui)
+					GuiLayoutBeginHorizontal(menu_gui, 0, 0, true, 0, 0)
+					if(GuiButton(menu_gui, NewID(), dx + window_width - tw - 4, dy, hub_create_text))then
+						menu_status = status.creating_hub
+					end
+					GuiLayoutEnd(menu_gui)
+					GuiLayoutEndLayer(menu_gui)
+				end
 
 				if(GuiButton(menu_gui, NewID(), 0, 0, GameTextGetTranslatedOrNot("$mp_join_with_code")))then
 					menu_status = status.joining_lobby
 				end
-
-				GuiText(menu_gui, 2, 0, " ")
-
-				if(GuiButton(menu_gui, NewID(), 0, 0, GameTextGetTranslatedOrNot("$hub_create")))then
-					menu_status = status.creating_hub
-				end
-
-				if(GuiButton(menu_gui, NewID(), 0, 0, GameTextGetTranslatedOrNot("$hub_join")))then
-					menu_status = status.joining_hub
+				do
+					local _, _, _, _, _, _, _, dx, dy = GuiGetPreviousWidgetInfo(menu_gui)
+					local hub_join_text = GameTextGetTranslatedOrNot("$hub_join")
+					local tw = GuiGetTextDimensions(menu_gui, hub_join_text)
+					GuiLayoutBeginLayer(menu_gui)
+					GuiLayoutBeginHorizontal(menu_gui, 0, 0, true, 0, 0)
+					if(GuiButton(menu_gui, NewID(), dx + window_width - tw - 4, dy, hub_join_text))then
+						menu_status = status.joining_hub
+					end
+					GuiLayoutEnd(menu_gui)
+					GuiLayoutEndLayer(menu_gui)
 				end
 
 				GuiText(menu_gui, 2, 0, " ")

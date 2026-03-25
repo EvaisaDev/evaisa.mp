@@ -9,9 +9,10 @@ noita_online_download = "https://github.com/EvaisaDev/noita-online/releases"
 exceptions_in_logger = true
 dev_mode = false
 debugging = false
-disable_print = true
+disable_print = false
 trailer_mode = false
 disable_error_catching = false
+hub_server_url = "https://mphub.evaisa.dev"
 
 -----------------------------------
 
@@ -1096,6 +1097,7 @@ if(not failed_to_load)then
 						dofile("mods/evaisa.mp/files/scripts/lobby_ui.lua")
 						dofile("mods/evaisa.mp/files/scripts/hub_ui.lua")
 						dofile("mods/evaisa.mp/files/scripts/chat_ui.lua")
+						dofile_once("mods/evaisa.mp/lib/http.lua").poll()
 					end
 			
 					if (GameGetFrameNum() % (600) == 0) then

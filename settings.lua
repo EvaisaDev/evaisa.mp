@@ -65,14 +65,6 @@ mod_settings =
 		scope = MOD_SETTING_SCOPE_RUNTIME,
 	},
 	{
-		id = "hub_server_url",
-		ui_name = "Hub Server URL",
-		ui_description = "The URL of the hub server to connect to.",
-		value_default = "http://localhost:3000",
-		value_display_formatting = "$0",
-		scope = MOD_SETTING_SCOPE_RUNTIME,
-	},
-	{
 		category_id = "keybinds",
 		ui_name = "Keybindings",
 		ui_description = "You can edit keybinds here.",
