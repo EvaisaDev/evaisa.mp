@@ -7,9 +7,9 @@ dofile("mods/evaisa.mp/version.lua")
 
 noita_online_download = "https://github.com/EvaisaDev/noita-online/releases"
 exceptions_in_logger = true
-dev_mode = false
-debugging = false
-disable_print = true
+dev_mode = true
+debugging = true
+disable_print = false
 trailer_mode = false
 disable_error_catching = false
 
