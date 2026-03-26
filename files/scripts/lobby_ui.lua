@@ -368,17 +368,19 @@ local default_lobby_menus = {
 			local last_w, last_h = GuiGetTextDimensions(menu_gui, lobby_type_string)
 			local box_h = last_h + (chunks <= 1 and 2 or 0)
 			
-			Gui9Piece(menu_gui, function() return NewID("EditLobby") end, 0, 0, box_w, box_h, 0.1, -5600, "mods/evaisa.mp/files/gfx/ui/9piece_white.xml", 3)
+			if(not hub_source_lobby)then
+				Gui9Piece(menu_gui, function() return NewID("EditLobby") end, 0, 0, box_w, box_h, 0.1, -5600, "mods/evaisa.mp/files/gfx/ui/9piece_white.xml", 3)
 
-			if(GuiTextButton(menu_gui, function() return NewID("EditLobby") end, 4, 2, lobby_type_string, -5600, 1))then
-				edit_lobby_type = edit_lobby_type + 1
-				if(edit_lobby_type > #lobby_types and owner == steam_utils.getSteamID())then
-					edit_lobby_type = 1
+				if(GuiTextButton(menu_gui, function() return NewID("EditLobby") end, 4, 2, lobby_type_string, -5600, 1))then
+					edit_lobby_type = edit_lobby_type + 1
+					if(edit_lobby_type > #lobby_types and owner == steam_utils.getSteamID())then
+						edit_lobby_type = 1
+					end
+					settings_changed = true
 				end
-				settings_changed = true
-			end
 
-			current_y = current_y + box_h + 2
+				current_y = current_y + box_h + 2
+			end
 
 			-- Lobby name field
 			local lobby_name_string = GameTextGetTranslatedOrNot("$mp_lobby_name")..": "
@@ -2376,17 +2378,19 @@ local windows = {
 					local last_w, last_h = GuiGetTextDimensions(menu_gui, lobby_type_string)
 					local box_h = last_h + (chunks <= 1 and 2 or 0)
 					
-					Gui9Piece(menu_gui, function() return NewID("EditLobby") end, 0, 0, box_w, box_h, 0.1, -5600, "mods/evaisa.mp/files/gfx/ui/9piece_white.xml", 3)
+					if(not hub_source_lobby)then
+						Gui9Piece(menu_gui, function() return NewID("EditLobby") end, 0, 0, box_w, box_h, 0.1, -5600, "mods/evaisa.mp/files/gfx/ui/9piece_white.xml", 3)
 
-					if(GuiTextButton(menu_gui, function() return NewID("EditLobby") end, 4, 2, lobby_type_string, -5600, 1))then
-						edit_lobby_type = edit_lobby_type + 1
-						if(edit_lobby_type > #lobby_types and owner == steam_utils.getSteamID())then
-							edit_lobby_type = 1
+						if(GuiTextButton(menu_gui, function() return NewID("EditLobby") end, 4, 2, lobby_type_string, -5600, 1))then
+							edit_lobby_type = edit_lobby_type + 1
+							if(edit_lobby_type > #lobby_types and owner == steam_utils.getSteamID())then
+								edit_lobby_type = 1
+							end
+							settings_changed = true
 						end
-						settings_changed = true
-					end
 
-					current_y = current_y + box_h + 2
+						current_y = current_y + box_h + 2
+					end
 
 					-- Lobby name field
 					local lobby_name_string = GameTextGetTranslatedOrNot("$mp_lobby_name")..": "
@@ -2730,6 +2734,7 @@ local windows = {
 					end
 					invite_menu_open = false
 					selected_player = nil
+					hub_creating_lobby = false
 					menu_status = status.main_menu
 					initial_refreshes = 10
 					return
@@ -2743,11 +2748,15 @@ local windows = {
 
 					local internal_types = { "Public", "Private", "FriendsOnly",}
 
-					if(GuiButton(menu_gui, NewID("CreateLobby"), 2, 0, GameTextGetTranslatedOrNot("$mp_lobby_type")..": "..lobby_types[lobby_type]))then
-						lobby_type = lobby_type + 1
-						if(lobby_type > #lobby_types)then
-							lobby_type = 1
+					if(not hub_creating_lobby)then
+						if(GuiButton(menu_gui, NewID("CreateLobby"), 2, 0, GameTextGetTranslatedOrNot("$mp_lobby_type")..": "..lobby_types[lobby_type]))then
+							lobby_type = lobby_type + 1
+							if(lobby_type > #lobby_types)then
+								lobby_type = 1
+							end
 						end
+					else
+						lobby_type = 2
 					end
 
 
@@ -2786,6 +2795,10 @@ local windows = {
 
 					if(GuiButton(menu_gui, NewID("CreateLobby"), 2, 0, GameTextGetTranslatedOrNot("$mp_create_lobby")))then
 						CreateLobby(internal_types[lobby_type], lobby_max_players, function (code) 
+							hub_creating_lobby = false
+							if hub_state ~= nil then
+								hub_source_lobby = true
+							end
 							msg.log("Created new lobby!")
 							print("Created new lobby!")
 
@@ -3044,6 +3057,163 @@ local windows = {
 				invite_menu_open = false 
 				selected_player = nil
 			end, "disconnected_gui")
+		end
+	},
+	{
+		name = "Hub",
+		func = function() end
+	},
+	{
+		name = "CreateHub",
+		func = function()
+			local window_width = 200
+			local window_height = 160
+
+			DrawWindow(menu_gui, -4000, screen_width / 2, screen_height / 2, window_width, window_height, GameTextGetTranslatedOrNot("$hub_create"), true, function()
+				GuiLayoutBeginVertical(menu_gui, 0, 0, true, 0, 0)
+
+				if GuiButton(menu_gui, NewID("HubCreate"), 0, 0, GameTextGetTranslatedOrNot("$mp_return_menu")) then
+					hub_ui_hub_name_input = ""
+					hub_ui_hub_err = nil
+					menu_status = status.main_menu
+					return
+				end
+
+				GuiText(menu_gui, 2, 0, "--------------------")
+
+				GuiText(menu_gui, 0, 0, GameTextGetTranslatedOrNot("$hub_name"))
+				hub_ui_hub_name_input = GuiTextInput(menu_gui, NewID("HubCreate"), 0, 0, hub_ui_hub_name_input, 170, 40,
+					"qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890 !@#$%^&*()-_")
+				local _, _, hov = GuiGetPreviousWidgetInfo(menu_gui)
+				if hov then GameAddFlagRun("chat_bind_disabled") end
+
+				if hub_ui_hub_err then
+					GuiColorSetForNextWidget(menu_gui, 1, 0.3, 0.3, 1)
+					GuiText(menu_gui, 0, 0, hub_ui_hub_err)
+				end
+
+				GuiText(menu_gui, 2, 0, " ")
+
+				if hub_ui_busy then
+					GuiColorSetForNextWidget(menu_gui, 0.5, 0.5, 0.5, 1)
+					GuiText(menu_gui, 2, 0, "...")
+				elseif GuiButton(menu_gui, NewID("HubCreate"), 2, 0, GameTextGetTranslatedOrNot("$hub_create")) then
+					if #hub_ui_hub_name_input > 0 then
+						local my_id = steam_utils.getSteamID()
+						hub_ui_busy = true
+						hub_ui_busy_frame = GameGetFrameNum()
+						hub_create(hub_ui_hub_name_input, my_id, function(data, err)
+							hub_ui_busy = false
+							if err or not data then
+								hub_ui_hub_err = GameTextGetTranslatedOrNot("$hub_err_create") .. ": " .. tostring(err or "failed")
+							else
+								hub_state = {
+									id             = data.hub_id,
+									name           = hub_ui_hub_name_input,
+									invite_code    = data.invite_code,
+									owner_steam_id = tostring(my_id),
+									moderators     = {},
+									lobbies        = {},
+									feed           = {},
+									settings       = { only_mods_can_start = false },
+									online_members = { tostring(my_id) }
+								}
+								hub_token = data.token
+								hub_ui_hub_name_input = ""
+								hub_ui_hub_err = nil
+								menu_status = status.hub
+							end
+						end)
+					else
+						hub_ui_hub_err = GameTextGetTranslatedOrNot("$hub_err_no_name")
+					end
+				end
+
+				GuiLayoutEnd(menu_gui)
+			end, function()
+				hub_ui_hub_name_input = ""
+				hub_ui_hub_err = nil
+				menu_status = status.main_menu
+			end, "hub_create_window")
+		end
+	},
+	{
+		name = "JoinHub",
+		func = function()
+			local window_width = 200
+			local window_height = 160
+
+			DrawWindow(menu_gui, -4000, screen_width / 2, screen_height / 2, window_width, window_height, GameTextGetTranslatedOrNot("$hub_join"), true, function()
+				GuiLayoutBeginVertical(menu_gui, 0, 0, true, 0, 0)
+
+				if GuiButton(menu_gui, NewID("HubJoin"), 0, 0, GameTextGetTranslatedOrNot("$mp_return_menu")) then
+					hub_ui_join_code_input = ""
+					hub_ui_hub_err = nil
+					menu_status = status.main_menu
+					return
+				end
+
+				GuiText(menu_gui, 2, 0, "--------------------")
+
+				GuiText(menu_gui, 0, 0, GameTextGetTranslatedOrNot("$hub_invite_code"))
+				hub_ui_join_code_input = GuiTextInput(menu_gui, NewID("HubJoin"), 0, 0, hub_ui_join_code_input, 170, 15,
+					"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz")
+				local _, _, hov = GuiGetPreviousWidgetInfo(menu_gui)
+				if hov then GameAddFlagRun("chat_bind_disabled") end
+
+				if GuiButton(menu_gui, NewID("HubJoin"), 2, 0, GameTextGetTranslatedOrNot("$mp_paste_code")) then
+					local clip = steam.utils.getClipboard()
+					if clip and clip ~= "" then hub_ui_join_code_input = clip end
+				end
+
+				if hub_ui_hub_err then
+					GuiColorSetForNextWidget(menu_gui, 1, 0.3, 0.3, 1)
+					GuiText(menu_gui, 0, 0, hub_ui_hub_err)
+				end
+
+				GuiText(menu_gui, 2, 0, " ")
+
+				if hub_ui_busy then
+					GuiColorSetForNextWidget(menu_gui, 0.5, 0.5, 0.5, 1)
+					GuiText(menu_gui, 2, 0, "...")
+				elseif GuiButton(menu_gui, NewID("HubJoin"), 2, 0, GameTextGetTranslatedOrNot("$hub_join")) then
+					if #hub_ui_join_code_input > 0 then
+						local my_id = steam_utils.getSteamID()
+						hub_ui_busy = true
+						hub_ui_busy_frame = GameGetFrameNum()
+						hub_join_by_code(hub_ui_join_code_input, my_id, function(data, err)
+							hub_ui_busy = false
+							if err or not data then
+								hub_ui_hub_err = GameTextGetTranslatedOrNot("$hub_err_join") .. ": " .. tostring(err or "failed")
+							else
+								hub_state = {
+									id             = data.hub_id,
+									name           = data.name,
+									invite_code    = data.invite_code,
+									owner_steam_id = data.owner_steam_id,
+									moderators     = data.moderators or {},
+									lobbies        = data.lobbies or {},
+									feed           = data.feed or {},
+									settings       = data.settings or {},
+									online_members = data.online_members or {}
+								}
+								hub_token = data.token
+								hub_ui_join_code_input = ""
+								hub_ui_hub_err = nil
+								menu_status = status.hub
+							end
+						end)
+					else
+						hub_ui_hub_err = GameTextGetTranslatedOrNot("$hub_err_no_code")
+					end
+				end
+
+				GuiLayoutEnd(menu_gui)
+			end, function()
+				hub_ui_join_code_input = ""
+				hub_ui_hub_err = nil
+				menu_status = status.main_menu
+			end, "hub_join_window")
 		end
 	}
 }

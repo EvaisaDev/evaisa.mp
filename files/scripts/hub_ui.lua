@@ -1,6 +1,5 @@
 hub_ui_new_lobby_name     = hub_ui_new_lobby_name or ""
 hub_ui_new_lobby_gamemode = hub_ui_new_lobby_gamemode or 1
-hub_ui_creating_lobby     = hub_ui_creating_lobby or false
 hub_ui_right_panel        = hub_ui_right_panel or nil
 hub_ui_left_panel         = hub_ui_left_panel or nil
 hub_ui_hub_name_input     = hub_ui_hub_name_input or ""
@@ -13,7 +12,12 @@ hub_ui_feed_scroll_pos    = hub_ui_feed_scroll_pos or 0
 hub_ui_lobby_settings     = hub_ui_lobby_settings or {}
 hub_ui_editing_lobby      = hub_ui_editing_lobby or nil
 hub_ui_busy            = hub_ui_busy or false
+hub_ui_busy_frame      = hub_ui_busy_frame or 0
+if hub_ui_busy and (GameGetFrameNum() - hub_ui_busy_frame) > 600 then
+    hub_ui_busy = false
+end
 hub_pending_spectate      = hub_pending_spectate or false
+hub_ui_show_code          = hub_ui_show_code or false
 
 local sw, sh = GuiGetScreenDimensions(menu_gui)
 local cx      = sw / 2
@@ -62,7 +66,7 @@ local function format_feed_entry(entry)
     return entry.event_type .. (entry.extra ~= "" and (": " .. entry.extra) or "")
 end
 
-local hub_showing = hub_state ~= nil and (menu_status == status.hub or hub_source_lobby == true)
+local hub_showing = hub_state ~= nil and (menu_status == status.hub or hub_source_lobby == true) and not IsPaused()
 
 if hub_showing and hub_source_lobby and lobby_code and hub_pending_spectate then
     hub_pending_spectate = false
@@ -83,110 +87,80 @@ if hub_showing then
     local lobby_list = hub_lobbies_as_sorted_list()
 
     DrawWindow(menu_gui, -5000, cx, cy, CENTER_W, CENTER_H, function()
+        local code = hub_state.invite_code or "?"
+        local display_code = hub_ui_show_code and code or censorString(code)
         GuiColorSetForNextWidget(menu_gui, 0, 0, 0, 0.3)
-        GuiText(menu_gui, 0, 0, hub_state.name .. "  [" .. (hub_state.invite_code or "?") .. "]")
+        GuiText(menu_gui, 0, 0, hub_state.name .. "  [" .. display_code .. "]")
+
+        GuiColorSetForNextWidget(menu_gui, 74/255, 62/255, 46/255, 0.5)
+        if GuiImageButton(menu_gui, NewID("hub_title"), 1, 1.5, "", hub_ui_show_code and "mods/evaisa.mp/files/gfx/ui/hide.png" or "mods/evaisa.mp/files/gfx/ui/show.png") then
+            hub_ui_show_code = not hub_ui_show_code
+            GamePlaySound("data/audio/Desktop/ui.bank", "ui/button_click", 0, 0)
+        end
+
+        GuiColorSetForNextWidget(menu_gui, 74/255, 62/255, 46/255, 0.5)
+        if GuiImageButton(menu_gui, NewID("hub_title"), 6, 1.5, "", "mods/evaisa.mp/files/gfx/ui/copy.png") then
+            steam.utils.setClipboard(code)
+            GamePlaySound("data/audio/Desktop/ui.bank", "ui/button_click", 0, 0)
+        end
     end, true, function()
         GuiLayoutBeginVertical(menu_gui, 0, 0, true, 0, 0)
+        local members_btn = hub_ui_right_panel == "members" and ts("$hub_members") .. " <" or ts("$hub_members") .. " >"
+        local mtw = GuiGetTextDimensions(menu_gui, members_btn)
+        if GuiButton(menu_gui, NewID("hub_btn"), CENTER_W - mtw, 0, members_btn) then
+            if hub_ui_right_panel == "members" then
+                hub_ui_right_panel = nil
+            else
+                hub_ui_right_panel = "members"
+            end
+        end
+        local feed_btn = hub_ui_right_panel == "feed" and ts("$hub_feed") .. " <" or ts("$hub_feed") .. " >"
+        local ftw = GuiGetTextDimensions(menu_gui, feed_btn)
+        if GuiButton(menu_gui, NewID("hub_btn"), CENTER_W - ftw, 0, feed_btn) then
+            if hub_ui_right_panel == "feed" then
+                hub_ui_right_panel = nil
+            else
+                hub_ui_right_panel = "feed"
+            end
+        end
+        GuiLayoutEnd(menu_gui)
 
-        GuiLayoutBeginHorizontal(menu_gui, 0, 0, true, 0, 0)
+        GuiLayoutBeginVertical(menu_gui, 0, 0, true, 0, 0)
+
         if GuiButton(menu_gui, NewID("hub_btn"), 0, 0, ts("$hub_leave")) then
             hub_leave()
         end
 
-        if hub_spectator_mode then
-            GuiColorSetForNextWidget(menu_gui, 0.4, 1, 0.4, 1)
+        if is_owner then
+            local settings_btn = hub_ui_left_panel == "settings" and "< " .. ts("$hub_settings") or "> " .. ts("$hub_settings")
+            if GuiButton(menu_gui, NewID("hub_btn"), 0, 0, settings_btn) then
+                if hub_ui_left_panel == "settings" then
+                    hub_ui_left_panel = nil
+                else
+                    hub_ui_left_panel = "settings"
+                    hub_ui_new_lobby_name = ""
+                end
+            end
         end
-        if GuiButton(menu_gui, NewID("hub_btn"), 0, 0, hub_spectator_mode and ts("$hub_spectator_on") or ts("$hub_spectator_off")) then
-            hub_spectator_mode = not hub_spectator_mode
-        end
-        GuiLayoutEnd(menu_gui)
 
-        GuiLayoutBeginHorizontal(menu_gui, 0, 0, true, 0, 0)
+        GuiText(menu_gui, 2, 0, " ")
+
+        if is_owner then
+            if GuiButton(menu_gui, NewID("hub_btn"), 0, 0, ts("$hub_create_lobby")) then
+                hub_creating_lobby = true
+                menu_status = status.creating_lobby
+            end
+        end
+
         if GuiButton(menu_gui, NewID("hub_btn"), 0, 0, ts("$hub_refresh")) then
             hub_refresh()
         end
 
-        local members_btn = ts("$hub_members") .. " >"
-        if hub_ui_right_panel == "members" then members_btn = ts("$hub_members") .. " <" end
-        if GuiButton(menu_gui, NewID("hub_btn"), 0, 0, members_btn) then
-            hub_ui_right_panel = hub_ui_right_panel == "members" and nil or "members"
-        end
-
-        local feed_btn = ts("$hub_feed") .. " >"
-        if hub_ui_right_panel == "feed" then feed_btn = ts("$hub_feed") .. " <" end
-        if GuiButton(menu_gui, NewID("hub_btn"), 0, 0, feed_btn) then
-            hub_ui_right_panel = hub_ui_right_panel == "feed" and nil or "feed"
-        end
-        GuiLayoutEnd(menu_gui)
-
-        if is_owner then
-            local settings_btn = "> " .. ts("$hub_settings")
-            if hub_ui_left_panel == "settings" then settings_btn = "< " .. ts("$hub_settings") end
-            if GuiButton(menu_gui, NewID("hub_btn"), 0, 0, settings_btn) then
-                hub_ui_left_panel = hub_ui_left_panel == "settings" and nil or "settings"
-            end
+        if GuiButton(menu_gui, NewID("hub_btn"), 0, 0, hub_spectator_mode and ts("$mp_spectator_mode_enabled") or ts("$mp_spectator_mode_disabled")) then
+            hub_spectator_mode = not hub_spectator_mode
         end
 
         GuiText(menu_gui, 2, 0, "--------------------")
-        GuiText(menu_gui, 2, 0, ts("$hub_lobbies"))
-
-        if is_owner then
-            if hub_ui_creating_lobby then
-                GuiLayoutBeginVertical(menu_gui, 0, 0, true, 2, 2)
-
-                GuiText(menu_gui, 0, 0, ts("$hub_new_lobby_name"))
-                hub_ui_new_lobby_name = GuiTextInput(menu_gui, NewID("hub_new_lobby"), 0, 0, hub_ui_new_lobby_name, 150, 30,
-                    "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890 !@#$%^&*()_-+")
-                local _, _, hov = GuiGetPreviousWidgetInfo(menu_gui)
-                if hov then GameAddFlagRun("chat_bind_disabled") end
-
-                GuiText(menu_gui, 0, 0, ts("$hub_new_lobby_mode"))
-                local gm_names = {}
-                for _, gm in ipairs(gamemodes) do
-                    table.insert(gm_names, ts(gm.name))
-                end
-                if #gm_names == 0 then
-                    GuiColorSetForNextWidget(menu_gui, 0.5, 0.5, 0.5, 1)
-                    GuiText(menu_gui, 0, 0, ts("$mp_no_gamemodes"))
-                else
-                    hub_ui_new_lobby_gamemode = hub_ui_new_lobby_gamemode or 1
-                    if hub_ui_new_lobby_gamemode > #gm_names then hub_ui_new_lobby_gamemode = 1 end
-                    if GuiButton(menu_gui, NewID("hub_new_lobby"), 0, 0, gm_names[hub_ui_new_lobby_gamemode]) then
-                        hub_ui_new_lobby_gamemode = (hub_ui_new_lobby_gamemode % #gm_names) + 1
-                    end
-                end
-
-                GuiLayoutBeginHorizontal(menu_gui, 0, 0, true, 0, 0)
-                if hub_ui_busy then
-                    GuiColorSetForNextWidget(menu_gui, 0.5, 0.5, 0.5, 1)
-                    GuiText(menu_gui, 0, 0, "...")
-                elseif GuiButton(menu_gui, NewID("hub_new_lobby"), 0, 0, ts("$mp_create_lobby")) then
-                    if hub_ui_new_lobby_name and #hub_ui_new_lobby_name > 0 then
-                        local gm_id = (gamemodes[hub_ui_new_lobby_gamemode] or {}).id or ""
-                        hub_ui_busy = true
-                        hub_create_lobby(hub_ui_new_lobby_name, gm_id, {}, function(lobby, err)
-                            hub_ui_busy = false
-                            if err then
-                                hub_err(ts("$hub_err_create_lobby") .. ": " .. tostring(err))
-                            else
-                                hub_ui_creating_lobby = false
-                                hub_ui_new_lobby_name = ""
-                            end
-                        end)
-                    end
-                end
-                if GuiButton(menu_gui, NewID("hub_new_lobby"), 0, 0, ts("$hub_cancel")) then
-                    hub_ui_creating_lobby = false
-                    hub_ui_new_lobby_name = ""
-                end
-                GuiLayoutEnd(menu_gui)
-                GuiLayoutEnd(menu_gui)
-            else
-                if GuiButton(menu_gui, NewID("hub_btn"), 0, 0, ts("$hub_create_lobby")) then
-                    hub_ui_creating_lobby = true
-                end
-            end
-        end
 
         if #lobby_list == 0 then
             GuiColorSetForNextWidget(menu_gui, 0.5, 0.5, 0.5, 1)
@@ -443,11 +417,17 @@ if hub_showing then
             ts("$hub_settings"), true, function()
                 GuiLayoutBeginVertical(menu_gui, 0, 0, true, 0, 0)
 
+                local box_w = SIDE_W - 4
                 local only_mods = hub_state.settings and hub_state.settings.only_mods_can_start or false
-                local col = only_mods and {0.4, 1, 0.4, 1} or {1, 0.4, 0.4, 1}
-                GuiColorSetForNextWidget(menu_gui, col[1], col[2], col[3], col[4])
-                if GuiButton(menu_gui, NewID("hub_settings"), 0, 0,
-                    ts("$hub_only_mods_start") .. ": " .. (only_mods and ts("$mp_setting_enabled") or ts("$mp_setting_disabled"))) then
+                local val_r, val_g, val_b = only_mods and 0.4 or 1, only_mods and 1 or 0.4, 0.4
+                local val_text = only_mods and ts("$mp_setting_enabled") or ts("$mp_setting_disabled")
+                local label = ts("$hub_only_mods_start") .. ": "
+                local lw, lh = GuiGetTextDimensions(menu_gui, label .. val_text)
+                Gui9Piece(menu_gui, function() return NewID("hub_settings") end, 0, 0, box_w, lh + 2, 0.1, -5600, "mods/evaisa.mp/files/gfx/ui/9piece_white.xml", 3)
+                if GuiTextButton(menu_gui, function() return NewID("hub_settings") end, 4, 2, {
+                    { text = label, color = {1, 1, 1, 1} },
+                    { text = val_text, color = {val_r, val_g, val_b, 1} }
+                }, -5600, 1, val_r, val_g, val_b, 1, box_w) then
                     hub_update_settings({ only_mods_can_start = not only_mods })
                 end
 
@@ -478,146 +458,5 @@ if hub_showing then
     end
 
     draw_err()
-
-elseif menu_status == status.creating_hub then
-
-    DrawWindow(menu_gui, -5000, cx, cy, 200, 100, ts("$hub_create"), true, function()
-        GuiLayoutBeginVertical(menu_gui, 0, 0, true, 0, 0)
-
-        if GuiButton(menu_gui, NewID("HubCreate"), 0, 0, ts("$mp_return_menu")) then
-            hub_ui_hub_name_input = ""
-            hub_ui_hub_err = nil
-            menu_status = status.main_menu
-            return
-        end
-
-        GuiText(menu_gui, 2, 0, "--------------------")
-
-        GuiText(menu_gui, 0, 0, ts("$hub_name"))
-        hub_ui_hub_name_input = GuiTextInput(menu_gui, NewID("HubCreate"), 0, 0, hub_ui_hub_name_input, 170, 40,
-            "qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890 !@#$%^&*()-_")
-        local _, _, hov = GuiGetPreviousWidgetInfo(menu_gui)
-        if hov then GameAddFlagRun("chat_bind_disabled") end
-
-        if hub_ui_hub_err then
-            GuiColorSetForNextWidget(menu_gui, 1, 0.3, 0.3, 1)
-            GuiText(menu_gui, 0, 0, hub_ui_hub_err)
-        end
-
-        GuiText(menu_gui, 2, 0, " ")
-
-        if hub_ui_busy then
-            GuiColorSetForNextWidget(menu_gui, 0.5, 0.5, 0.5, 1)
-            GuiText(menu_gui, 2, 0, "...")
-        elseif GuiButton(menu_gui, NewID("HubCreate"), 2, 0, ts("$mp_create_lobby")) then
-            if #hub_ui_hub_name_input > 0 then
-                local my_id = steam_utils.getSteamID()
-                hub_ui_busy = true
-                hub_create(hub_ui_hub_name_input, my_id, function(data, err)
-                    hub_ui_busy = false
-                    if err or not data then
-                        hub_ui_hub_err = ts("$hub_err_create") .. ": " .. tostring(err or "failed")
-                    else
-                        hub_state = {
-                            id             = data.hub_id,
-                            name           = hub_ui_hub_name_input,
-                            invite_code    = data.invite_code,
-                            owner_steam_id = tostring(my_id),
-                            moderators     = {},
-                            lobbies        = {},
-                            feed           = {},
-                            settings       = { only_mods_can_start = false },
-                            online_members = { tostring(my_id) }
-                        }
-                        hub_token = data.token
-                        hub_ui_hub_name_input = ""
-                        hub_ui_hub_err = nil
-                        menu_status = status.hub
-                    end
-                end)
-            else
-                hub_ui_hub_err = ts("$hub_err_no_name")
-            end
-        end
-
-        GuiLayoutEnd(menu_gui)
-    end, function()
-        hub_ui_hub_name_input = ""
-        hub_ui_hub_err = nil
-        menu_status = status.main_menu
-    end, "hub_create_window")
-
-elseif menu_status == status.joining_hub then
-
-    DrawWindow(menu_gui, -5000, cx, cy, 200, 100, ts("$hub_join"), true, function()
-        GuiLayoutBeginVertical(menu_gui, 0, 0, true, 0, 0)
-
-        if GuiButton(menu_gui, NewID("HubJoin"), 0, 0, ts("$mp_return_menu")) then
-            hub_ui_join_code_input = ""
-            hub_ui_hub_err = nil
-            menu_status = status.main_menu
-            return
-        end
-
-        GuiText(menu_gui, 2, 0, "--------------------")
-
-        GuiText(menu_gui, 0, 0, ts("$hub_invite_code"))
-        hub_ui_join_code_input = GuiTextInput(menu_gui, NewID("HubJoin"), 0, 0, hub_ui_join_code_input, 170, 15,
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz")
-        local _, _, hov = GuiGetPreviousWidgetInfo(menu_gui)
-        if hov then GameAddFlagRun("chat_bind_disabled") end
-
-        if GuiButton(menu_gui, NewID("HubJoin"), 2, 0, ts("$mp_paste_code")) then
-            local clip = steam.utils.getClipboard()
-            if clip and clip ~= "" then hub_ui_join_code_input = clip end
-        end
-
-        if hub_ui_hub_err then
-            GuiColorSetForNextWidget(menu_gui, 1, 0.3, 0.3, 1)
-            GuiText(menu_gui, 0, 0, hub_ui_hub_err)
-        end
-
-        GuiText(menu_gui, 2, 0, " ")
-
-        if hub_ui_busy then
-            GuiColorSetForNextWidget(menu_gui, 0.5, 0.5, 0.5, 1)
-            GuiText(menu_gui, 2, 0, "...")
-        elseif GuiButton(menu_gui, NewID("HubJoin"), 2, 0, ts("$mp_join_lobby")) then
-            if #hub_ui_join_code_input > 0 then
-                local my_id = steam_utils.getSteamID()
-                hub_ui_busy = true
-                hub_join_by_code(hub_ui_join_code_input, my_id, function(data, err)
-                    hub_ui_busy = false
-                    if err or not data then
-                        hub_ui_hub_err = ts("$hub_err_join") .. ": " .. tostring(err or "failed")
-                    else
-                        hub_state = {
-                            id             = data.hub_id,
-                            name           = data.name,
-                            invite_code    = data.invite_code,
-                            owner_steam_id = data.owner_steam_id,
-                            moderators     = data.moderators or {},
-                            lobbies        = data.lobbies or {},
-                            feed           = data.feed or {},
-                            settings       = data.settings or {},
-                            online_members = data.online_members or {}
-                        }
-                        hub_token = data.token
-                        hub_ui_join_code_input = ""
-                        hub_ui_hub_err = nil
-                        menu_status = status.hub
-                    end
-                end)
-            else
-                hub_ui_hub_err = ts("$hub_err_no_code")
-            end
-        end
-
-        GuiLayoutEnd(menu_gui)
-    end, function()
-        hub_ui_join_code_input = ""
-        hub_ui_hub_err = nil
-        menu_status = status.main_menu
-    end, "hub_join_window")
 
 end
