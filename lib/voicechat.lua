@@ -232,7 +232,6 @@ M.open_capture = function(device_name)
 
     local dev = sdl.SDL_OpenAudioDevice(dev_name_ptr, 1, desired, obtained, 0)
     if dev == 0 then
-        print("[voicechat] SDL_OpenAudioDevice failed: " .. ffi.string(sdl.SDL_GetError()))
         return false
     end
 

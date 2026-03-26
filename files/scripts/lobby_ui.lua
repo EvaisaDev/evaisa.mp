@@ -642,6 +642,11 @@ local default_lobby_menus = {
 		
 						current_y = current_y + box_h + 2
 					end
+                                    elseif(setting.type == "custom")then
+                                            if(setting.draw ~= nil)then
+                                                    local drew_h = setting.draw(lobby_code, menu_gui, function() return NewID("EditLobby") end, current_y, box_w) or 0
+                                                    current_y = current_y + drew_h
+                                            end
 				end
 
 				if(settings_changed and owner == steam_utils.getSteamID())then
@@ -661,6 +666,9 @@ local default_lobby_menus = {
 					mp_log:print("Updated name: "..tostring(edit_lobby_name))
 					mp_log:print("Updated type: "..tostring(internal_types[edit_lobby_type]))
 					settings_changed = false
+					if(active_mode and active_mode.refresh)then
+						active_mode.refresh(lobby_code)
+					end
 					--print("lobby settings changed!")
 				end				
 
@@ -1812,13 +1820,40 @@ local windows = {
 				end
 
 
+				if(active_mode ~= nil and active_mode.lobby_panel_header ~= nil)then
+					active_mode.lobby_panel_header(lobby_code, menu_gui, function(...) return NewID(...) end)
+				end
+
 				GuiText(menu_gui, 2, 0, "--------------------")
 				local players = steam_utils.getLobbyMembers(lobby_code, true)
-	
-				for k, v in pairs(players) do
+
+				local player_list_items
+				if active_mode ~= nil and active_mode.get_player_list_items ~= nil then
+					player_list_items = active_mode.get_player_list_items(lobby_code, players)
+				else
+					player_list_items = players
+				end
+
+				for _, v in ipairs(player_list_items) do
+					if v.type == "section_header" then
+						GuiLayoutBeginHorizontal(menu_gui, 0, 0, true, 0, 0)
+						if v.r or v.g or v.b then
+							GuiColorSetForNextWidget(menu_gui, v.r or 1, v.g or 1, v.b or 1, 1)
+						end
+						GuiText(menu_gui, 2, 0, GameTextGetTranslatedOrNot(v.label or ""))
+						for _, btn in ipairs(v.buttons or {}) do
+							if GuiButton(menu_gui, NewID("section_hdr"), 2, 0, GameTextGetTranslatedOrNot(btn.label or "")) then
+								if btn.on_click then btn.on_click() end
+							end
+						end
+						GuiLayoutEnd(menu_gui)
+						GuiText(menu_gui, 0, -6, " ")
+						goto continue
+					end
+
 					GuiLayoutBeginHorizontal(menu_gui, 0, 0, true, 0, 0)
 	
-					local extra_x = 0
+					local extra_x = v.indent or 0
 					local alpha = 1
 					if(v.is_spectator)then
 						alpha = 0.5
@@ -1935,6 +1970,7 @@ local windows = {
 
 					--GuiLayoutEnd(menu_gui)
 					GuiText(menu_gui, 0, -6, " ")
+					::continue::
 				end
 	
 				--[[
@@ -1942,6 +1978,10 @@ local windows = {
 					GuiText(menu_gui, 2, 0, " ")
 				end
 				]]
+
+				if(active_mode ~= nil and active_mode.lobby_panel_footer ~= nil)then
+					active_mode.lobby_panel_footer(lobby_code, menu_gui, function(...) return NewID(...) end)
+				end
 
 				GuiLayoutEnd(menu_gui)
 			end, function() 
@@ -2609,6 +2649,11 @@ local windows = {
 								end
 				
 								current_y = current_y + box_h + 2
+							elseif(setting.type == "custom")then
+								if(setting.draw ~= nil)then
+									local drew_h = setting.draw(lobby_code, menu_gui, function() return NewID("EditLobby") end, current_y, box_w) or 0
+									current_y = current_y + drew_h
+								end
 							end
 						end
 
@@ -2629,6 +2674,9 @@ local windows = {
 							mp_log:print("Updated name: "..tostring(edit_lobby_name))
 							mp_log:print("Updated type: "..tostring(internal_types[edit_lobby_type]))
 							settings_changed = false
+							if(active_mode and active_mode.refresh)then
+								active_mode.refresh(lobby_code)
+							end
 							--print("lobby settings changed!")
 						end				
 
