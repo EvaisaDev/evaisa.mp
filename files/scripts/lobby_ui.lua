@@ -974,6 +974,7 @@ local windows = {
 				if(GuiButton(menu_gui, NewID(), 0, 0, GameTextGetTranslatedOrNot("$mp_create_lobby")))then
 					menu_status = status.creating_lobby
 				end
+				if hub_enabled then
 				do
 					local _, _, _, _, _, _, _, dx, dy = GuiGetPreviousWidgetInfo(menu_gui)
 					local hub_create_text = GameTextGetTranslatedOrNot("$hub_create")
@@ -986,10 +987,12 @@ local windows = {
 					GuiLayoutEnd(menu_gui)
 					GuiLayoutEndLayer(menu_gui)
 				end
+				end
 
 				if(GuiButton(menu_gui, NewID(), 0, 0, GameTextGetTranslatedOrNot("$mp_join_with_code")))then
 					menu_status = status.joining_lobby
 				end
+				if hub_enabled then
 				do
 					local _, _, _, _, _, _, _, dx, dy = GuiGetPreviousWidgetInfo(menu_gui)
 					local hub_join_text = GameTextGetTranslatedOrNot("$hub_join")
@@ -1001,6 +1004,7 @@ local windows = {
 					end
 					GuiLayoutEnd(menu_gui)
 					GuiLayoutEndLayer(menu_gui)
+				end
 				end
 
 				GuiText(menu_gui, 2, 0, " ")
@@ -1392,6 +1396,10 @@ local windows = {
 				invite_menu_open = false
 				if hub_state ~= nil and hub_source_lobby then
 					hub_source_lobby = false
+					local stored_token = steam.matchmaking.getLobbyData(lobby_code or "", "hub_token_id")
+					if stored_token and stored_token ~= "" then
+						hub_update_lobby_state(stored_token, { steam_lobby_id = "" })
+					end
 					menu_status = status.hub
 				else
 					menu_status = status.main_menu
@@ -2798,6 +2806,12 @@ local windows = {
 							hub_creating_lobby = false
 							if hub_state ~= nil then
 								hub_source_lobby = true
+								hub_create_lobby(lobby_name, tostring(gamemodes[gamemode_index].id), {}, function(lobby, err)
+									if lobby then
+										hub_activate_lobby(lobby.token_id, code)
+										steam_utils.TrySetLobbyData(code, "hub_token_id", tostring(lobby.token_id))
+									end
+								end)
 							end
 							msg.log("Created new lobby!")
 							print("Created new lobby!")

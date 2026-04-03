@@ -66,7 +66,7 @@ local function format_feed_entry(entry)
     return entry.event_type .. (entry.extra ~= "" and (": " .. entry.extra) or "")
 end
 
-local hub_showing = hub_state ~= nil and (menu_status == status.hub or hub_source_lobby == true) and not IsPaused()
+local hub_showing = hub_state ~= nil and menu_status == status.hub and not IsPaused()
 
 if hub_showing and hub_source_lobby and lobby_code and hub_pending_spectate then
     hub_pending_spectate = false

@@ -8,11 +8,12 @@ dofile("mods/evaisa.mp/version.lua")
 noita_online_download = "https://github.com/EvaisaDev/noita-online/releases"
 exceptions_in_logger = true
 dev_mode = true
-debugging = true
-disable_print = false
+debugging = false
+disable_print = true
 trailer_mode = false
 disable_error_catching = false
 hub_server_url = "https://mphub.evaisa.dev"
+hub_enabled = false
 
 -----------------------------------
 
@@ -595,7 +596,7 @@ if(not failed_to_load)then
 
 	dofile("mods/evaisa.mp/lib/character_support.lua")
 
-	local old_print = print
+	old_print = print
 	print = function(...)
 		if not disable_print then
 			local content = ...
