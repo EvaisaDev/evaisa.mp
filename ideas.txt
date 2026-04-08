@@ -1,7 +1,0 @@
-the players get dropped in an arena, dropping random wands and gold nuggets into the arena, then after one kills the other the losing player gets to pick a perk.
-Then both players get teleported to a shop area where they can edit their wands and buy spells
-after another countdown they get teleported to the arena again
-repeat
-
-might have random effects that can happen in the arena each time, like enemies spawning or players getting random buffs or debuffs etc
-different each round
