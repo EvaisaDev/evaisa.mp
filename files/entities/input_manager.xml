@@ -1,8 +1,0 @@
-<Entity name="mp_input_manager" tags="mp_input_manager">
-    <ControlsComponent
-        _enabled="1" 
-        enabled="1" 
-    ></ControlsComponent>
-
-    <StreamingKeepAliveComponent/>
-</Entity>
