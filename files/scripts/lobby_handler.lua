@@ -32,6 +32,10 @@ local function SplitMessage(message, characters)
 end
 
 function handleDisconnect(data)
+	if data.lobbyID == nil or data.userID ~= steam.matchmaking.getLobbyOwner(data.lobbyID) then
+		return
+	end
+
 	local message = data.message
 	local split_data = {}
 	for token in string.gmatch(message, "[^;]+") do
@@ -148,12 +152,32 @@ function handleGamemodeVersionCheck(lobbycode)
 	return true
 end
 
+function GetRequiredMods(lobby)
+	local raw = steam.matchmaking.getLobbyData(lobby, "required_mods")
+	if raw == nil or raw == "" then
+		return {}
+	end
+	local ok, mods = pcall(bitser.loads, raw)
+	if not ok or type(mods) ~= "table" then
+		return nil
+	end
+	local out = {}
+	for i, v in ipairs(mods) do
+		if i > 200 then
+			break
+		end
+		if type(v) == "table" and type(v[1]) == "string" and #v[1] <= 128 then
+			table.insert(out, {v[1], type(v[2]) == "string" and v[2]:sub(1, 64) or v[1]})
+		end
+	end
+	return out
+end
+
 function HasRequiredMods(lobby)
-	local required_mod_string = steam.matchmaking.getLobbyData(lobby, "required_mods") or ""
-
-	--print(required_mod_string)
-
-	local required_mods = required_mod_string ~= "" and bitser.loads(required_mod_string) or {}
+	local required_mods = GetRequiredMods(lobby)
+	if required_mods == nil then
+		return false
+	end
 
 	local player_mods = ModData()
 
@@ -278,7 +302,7 @@ function ModInfo(lobby)
 		missing_mods_string = ""
 	}
 
-	local required_mods = (steam.matchmaking.getLobbyData(lobby, "required_mods") ~= nil and steam.matchmaking.getLobbyData(lobby, "required_mods") ~= "") and bitser.loads(steam.matchmaking.getLobbyData(lobby, "required_mods")) or {}
+	local required_mods = GetRequiredMods(lobby) or {}
 
 	local player_mods = ModData()
 
@@ -352,13 +376,17 @@ end
 function DeserializeModData(data)
 	local split_data = string_split(data, "\x01")
 	local mod_data = {}
-	for i = 1, #split_data, 5 do
+	for i = 1, math.min(#split_data, 5 * 300), 5 do
+		local workshop_item_id = split_data[i] or "0"
+		if not workshop_item_id:match("^%d+$") or #workshop_item_id > 20 then
+			workshop_item_id = "0"
+		end
 		table.insert(mod_data, {
-			workshop_item_id = split_data[i],
-			id = split_data[i + 1],
-			name = split_data[i + 2],
-			description = split_data[i + 3],
-			download_link = split_data[i + 4]
+			workshop_item_id = workshop_item_id,
+			id = (split_data[i + 1] or ""):sub(1, 128),
+			name = (split_data[i + 2] or ""):sub(1, 128),
+			description = (split_data[i + 3] or ""):sub(1, 1024),
+			download_link = (split_data[i + 4] or ""):sub(1, 512)
 		})
 	end
 	--print(inspect(mod_data))

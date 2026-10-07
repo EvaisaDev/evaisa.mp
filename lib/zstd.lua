@@ -175,13 +175,14 @@ local function compress_stream (cstream, inbuf, cLevel)
 end
 
 
-local function decompress_stream (dstream, inbuf)
+local function decompress_stream (dstream, inbuf, max_out)
    local rlen = #inbuf
    local olen = zstd.ZSTD_DStreamOutSize()
    local obuf = ffi_new(arr_utint8_t, olen)
    local input = ffi_new(ptr_zstd_inbuffer_t)
    local output = ffi_new(ptr_zstd_outbuffer_t)
    local decompressed = {}
+   local total = 0
    input[0] = { inbuf, rlen, 0 }
    while input[0].pos < input[0].size do
       output[0] = { obuf, olen, 0 }
@@ -189,6 +190,10 @@ local function decompress_stream (dstream, inbuf)
       if zstd.ZSTD_isError(rlen) ~= 0 then
          return nil, "ZSTD_decompressStream() error: "
             .. ffi_str(zstd.ZSTD_getErrorName(rlen))
+      end
+      total = total + tonumber(output[0].pos)
+      if max_out and total > max_out then
+         return nil, "decompressed data too large"
       end
       tinsert(decompressed, ffi_str(obuf, output[0].pos))
    end
@@ -206,13 +211,16 @@ function _M:compress (fBuff, cLevel)
 end
 
 
-function _M:decompress (cBuff)
+function _M:decompress (cBuff, max_out)
+   if type(cBuff) ~= "string" then
+      return nil, "input is not a string"
+   end
    local dstream = self.dstream
    local err = init_dstream(dstream)
    if err then
       return nil, err
    end
-   return decompress_stream(dstream, cBuff)
+   return decompress_stream(dstream, cBuff, max_out or 64 * 1024 * 1024)
 end
 
 

@@ -2130,7 +2130,7 @@ local windows = {
 
 							-- Check if the character is part of the whitelist (i.e., only alphanumeric, dash, underscore, period, colon, slash,
 							-- question mark, equal sign, plus sign, ampersand, or percent sign)
-							if char:match("[%w%-%_%.%:%/%?%=%+&%%]") then
+							if char:match("[%w%-%_%.%:%/%?%=%+&]") then
 								-- If the character is part of the whitelist, append it to the sanitized URL
 								sanitized_url = sanitized_url .. char
 							end
@@ -2168,7 +2168,10 @@ local windows = {
 									{
 										text="Yes", 
 										callback = function() 
-											os.execute("start steam://openurl/https://steamcommunity.com/sharedfiles/filedetails/?id="..v.workshop_item_id)
+											local wid = tostring(v.workshop_item_id)
+											if wid:match("^%d+$") then
+												os.execute("start steam://openurl/https://steamcommunity.com/sharedfiles/filedetails/?id=" .. wid)
+											end
 										end
 									},
 									{
@@ -2190,7 +2193,9 @@ local windows = {
 									{
 										text="Yes", 
 										callback = function() 
-											os.execute("start explorer \""..url.."\"")
+											if url ~= "" then
+												os.execute("start explorer \""..url.."\"")
+											end
 										end
 									},
 									{
@@ -2223,16 +2228,16 @@ local windows = {
 							if(GuiButton(menu_gui, NewID("mod_list"), 0, 0, required_text))then
 								steam_utils.TrySetLobbyData(lobby_code, "mod_required_"..v.id, tostring(not mod_required))
 								if(not mod_required)then
-									local required_mods = (steam.matchmaking.getLobbyData(lobby_code, "required_mods") ~= nil and steam.matchmaking.getLobbyData(lobby_code, "required_mods") ~= "") and bitser.loads(steam.matchmaking.getLobbyData(lobby_code, "required_mods")) or {}
+									local required_mods = GetRequiredMods(lobby_code) or {}
 								
 									table.insert(required_mods, {v.id, v.name})
 
 									steam_utils.TrySetLobbyData(lobby_code, "required_mods", bitser.dumps(required_mods))
 								else
-									local required_mods = (steam.matchmaking.getLobbyData(lobby_code, "required_mods") ~= nil and steam.matchmaking.getLobbyData(lobby_code, "required_mods") ~= "") and bitser.loads(steam.matchmaking.getLobbyData(lobby_code, "required_mods")) or {}
+									local required_mods = GetRequiredMods(lobby_code) or {}
 								
 									for i, mod in ipairs(required_mods) do
-										if(mod.id == v.id)then
+										if(mod[1] == v.id)then
 											table.remove(required_mods, i)
 											break
 										end

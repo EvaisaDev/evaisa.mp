@@ -716,15 +716,19 @@ if(not failed_to_load)then
 	end
 
 	function TryHandleMessage(lobby_code, event, message, user, ignore)
-		print("Received message: " .. tostring(event) .. " with content: " .. tostring(message) .. " from user: " .. tostring(user))
+		--print("Received message: " .. tostring(event) .. " with content: " .. tostring(message) .. " from user: " .. tostring(user))
 		try(function()
 			if (event == "voice" and message ~= nil and voicechat ~= nil and ModSettingGet("evaisa.mp.voicechat_enabled")) then
 				if lobby_gamemode ~= nil and lobby_gamemode.user_can_speak and not lobby_gamemode.user_can_speak(user) then
 					return
 				end
+				if type(message) ~= "table" or type(message.pcm) ~= "string" or #message.pcm == 0 or #message.pcm > 96000 then
+					return
+				end
 				local global_vol = tonumber(ModSettingGet("evaisa.mp.voicechat_volume")) or 1.0
 				local player_vol = tonumber(ModSettingGet("evaisa.mp.player_vol_" .. tostring(user))) or 1.0
-				local vx, vy = message.x or 0, message.y or 0
+				local vx = (type(message.x) == "number" and message.x == message.x) and message.x or 0
+				local vy = (type(message.y) == "number" and message.y == message.y) and message.y or 0
 				if lobby_gamemode ~= nil and lobby_gamemode.enable_proximity_vc and lobby_gamemode.get_voice_positions then
 					local positions = lobby_gamemode.get_voice_positions(user)
 					if positions ~= nil then
@@ -777,7 +781,7 @@ if(not failed_to_load)then
 		
 				local from_owner = user == owner
 		
-				if (from_owner and event == "start" or event == "restart") then
+				if (from_owner and (event == "start" or event == "restart")) then
 
 					print("Starting game")
 					
@@ -843,13 +847,42 @@ if(not failed_to_load)then
 		end)
 	end
 
+	local MAX_MSG_SIZE = 512 * 1024
+	local MAX_MSGS_PER_USER_PER_FRAME = 64
+	local NET_DEBUG = false
+
+	local msg_budget = {}
+	local msg_budget_frame = -1
+	max_msg_size_per_type = max_msg_size_per_type or {}
+
 	function HandleMessage(v, ignore)
-			
-		if(is_awaiting_spectate)then
+		if (is_awaiting_spectate) then
 			return
 		end
 
-		local data = steamutils.parseData(v.data)
+		if (type(v.data) ~= "string" or #v.data == 0 or #v.data > MAX_MSG_SIZE) then
+			return
+		end
+
+		local user_str = tostring(v.user)
+
+		local frame_now = GameGetFrameNum()
+		if (frame_now ~= msg_budget_frame) then
+			msg_budget = {}
+			msg_budget_frame = frame_now
+		end
+		msg_budget[user_str] = (msg_budget[user_str] or 0) + 1
+		if (msg_budget[user_str] > MAX_MSGS_PER_USER_PER_FRAME) then
+			return
+		end
+
+		local ok, data = pcall(steamutils.parseData, v.data)
+		if (not ok) then
+			if (NET_DEBUG) then
+				print("[net] dropped malformed message from " .. user_str .. ": " .. tostring(data))
+			end
+			return
+		end
 
 		bytes_received = bytes_received + v.msg_size
 
@@ -859,31 +892,47 @@ if(not failed_to_load)then
 
 		-- old api
 		if (lobby_gamemode.message and not ignore) then
-			lobby_gamemode.message(lobby_code, data, v.user)
+			local ok2, err = pcall(lobby_gamemode.message, lobby_code, data, v.user)
+			if (not ok2) then
+				exception_log:print(tostring(err))
+			end
 		end
 
-		print("Received raw message: " .. tostring(v.data) .. " from user: " .. tostring(v.user) .. " with size: " .. tostring(v.msg_size))
-		
-		if (data[1] and type(data[1]) == "string") then
-			if(bytes_received_per_type[data[1]] == nil)then
-				bytes_received_per_type[data[1]] = 0
-			end
-			bytes_received_per_type[data[1]] = bytes_received_per_type[data[1]] + v.msg_size
-			local event = data[1]
-			local message = data[2]
-			local frame = data[3]
+		if (type(data) ~= "table" or type(data[1]) ~= "string" or #data[1] > 64) then
+			return
+		end
 
-			if (data[3]) then
-				if (not member_message_frames[tostring(v.user)] or member_message_frames[tostring(v.user)] <= frame) then
-					member_message_frames[tostring(v.user)] = frame
-					TryHandleMessage(lobby_code, event, message, v.user, ignore)
-				end
-			else
+		local event = data[1]
+		local message = data[2]
+		local frame = data[3]
+
+		if (frame ~= nil and (type(frame) ~= "number" or frame ~= frame)) then
+			return
+		end
+
+		-- old api
+		if (lobby_gamemode.message and not ignore) then
+			local ok2, err = pcall(lobby_gamemode.message, lobby_code, data, v.user)
+			if (not ok2) then
+				exception_log:print(tostring(err))
+			end
+		end
+
+		bytes_received_per_type[event] = (bytes_received_per_type[event] or 0) + v.msg_size
+
+		if (NET_DEBUG and (max_msg_size_per_type[event] or 0) < v.msg_size) then
+			max_msg_size_per_type[event] = v.msg_size
+			print(string.format("[netsize] new max for %s: %d bytes", event, v.msg_size))
+		end
+
+		if (frame ~= nil) then
+			local last = member_message_frames[user_str]
+			if (not last or last <= frame) then
+				member_message_frames[user_str] = frame
 				TryHandleMessage(lobby_code, event, message, v.user, ignore)
 			end
 		else
-			print("Invalid message: "..tostring(data))
-			print(inspect(data))
+			TryHandleMessage(lobby_code, event, message, v.user, ignore)
 		end
 	end
 
@@ -898,7 +947,10 @@ if(not failed_to_load)then
 			if(#messages > 0)then
 				--print("Received " .. tostring(#messages) .. " messages")
 				for k, v in ipairs(messages) do
-					HandleMessage(v, ignore)
+					local ok, err = pcall(HandleMessage, v, ignore)
+					if (not ok) then
+						exception_log:print(tostring(err))
+					end
 				end
 			end
 		--end

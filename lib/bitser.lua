@@ -32,6 +32,8 @@ local writable_buf = nil
 local writable_buf_size = nil
 local includeMetatables = true -- togglable with bitser.includeMetatables(false)
 local SEEN_LEN = {}
+local buf_limit = 0
+local MAX_DEPTH = 128
 
 local function Buffer_prereserve(min_size)
 	if buf_size < min_size then
@@ -64,6 +66,7 @@ end
 local function Buffer_newReader(str)
 	Buffer_makeBuffer(#str)
 	ffi.copy(buf, str, #str)
+	buf_limit = #str
 end
 
 local function Buffer_newDataReader(data, size)
@@ -74,6 +77,7 @@ local function Buffer_newDataReader(data, size)
 	buf_is_writable = false
 	buf_pos = 0
 	buf_size = size
+	buf_limit = size
 	buf = ffi.cast("uint8_t*", data)
 end
 
@@ -108,7 +112,7 @@ local function Buffer_write_data(ct, len, ...)
 end
 
 local function Buffer_ensure(numbytes)
-	if buf_pos + numbytes > buf_size then
+	if type(numbytes) ~= "number" or numbytes < 0 or numbytes ~= floor(numbytes) or buf_pos + numbytes > buf_limit then
 		error("malformed serialized data")
 	end
 end
@@ -128,6 +132,7 @@ local function Buffer_read_string(len)
 end
 
 local function Buffer_read_raw(data, len)
+	Buffer_ensure(len)
 	ffi.copy(data, buf + buf_pos, len)
 	buf_pos = buf_pos + len
 	return data
@@ -297,94 +302,91 @@ local function reserve_seen(seen)
 	return #seen
 end
 
-local function deserialize_value(seen)
+local function deserialize_value(seen, depth)
+	depth = depth or 0
+	if depth > MAX_DEPTH then
+		error("serialized data too deep")
+	end
 	local t = Buffer_read_byte()
 	if t < 128 then
-		--small int
 		return t - 27
 	elseif t < 192 then
-		--small reference
 		return seen[t - 127]
 	elseif t < 224 then
-		--small string
 		return add_to_seen(Buffer_read_string(t - 192), seen)
 	elseif t < 240 then
-		--small resource
 		return add_to_seen(resource_registry[Buffer_read_string(t - 224)], seen)
 	elseif t == 240 or t == 253 then
-		--table
 		local v = add_to_seen({}, seen)
-		local len = deserialize_value(seen)
+		local len = deserialize_value(seen, depth + 1)
 		for i = 1, len do
-			v[i] = deserialize_value(seen)
+			v[i] = deserialize_value(seen, depth + 1)
 		end
-		len = deserialize_value(seen)
+		len = deserialize_value(seen, depth + 1)
 		for _ = 1, len do
-			local key = deserialize_value(seen)
-			v[key] = deserialize_value(seen)
+			local key = deserialize_value(seen, depth + 1)
+			v[key] = deserialize_value(seen, depth + 1)
 		end
 		if t == 253 then
-			if includeMetatables then
-				setmetatable(v, deserialize_value(seen))
-			end
+			deserialize_value(seen, depth + 1)
 		end
 		return v
 	elseif t == 241 then
-		--long resource
 		local idx = reserve_seen(seen)
-		local value = resource_registry[deserialize_value(seen)]
+		local value = resource_registry[deserialize_value(seen, depth + 1)]
 		seen[idx] = value
 		return value
 	elseif t == 242 then
-		--instance
 		local instance = add_to_seen({}, seen)
-		local classname = deserialize_value(seen)
+		local classname = deserialize_value(seen, depth + 1)
 		local class = class_registry[classname]
 		local classkey = classkey_registry[classname]
 		local deserializer = class_deserialize_registry[classname]
-		local len = deserialize_value(seen)
+		local len = deserialize_value(seen, depth + 1)
 		for i = 1, len do
-			instance[i] = deserialize_value(seen)
+			instance[i] = deserialize_value(seen, depth + 1)
 		end
-		len = deserialize_value(seen)
+		len = deserialize_value(seen, depth + 1)
 		for _ = 1, len do
-			local key = deserialize_value(seen)
-			instance[key] = deserialize_value(seen)
+			local key = deserialize_value(seen, depth + 1)
+			instance[key] = deserialize_value(seen, depth + 1)
 		end
 		if classkey then
 			instance[classkey] = class
 		end
 		return deserializer(instance, class)
 	elseif t == 243 then
-		--reference
-		return seen[deserialize_value(seen) + 1]
+		return seen[deserialize_value(seen, depth + 1) + 1]
 	elseif t == 244 then
-		--long string
-		return add_to_seen(Buffer_read_string(deserialize_value(seen)), seen)
+		return add_to_seen(Buffer_read_string(deserialize_value(seen, depth + 1)), seen)
 	elseif t == 245 then
-		--long int
 		return Buffer_read_data("int32_t[1]", 4)[0]
 	elseif t == 246 then
-		--double
 		return Buffer_read_data("double[1]", 8)[0]
 	elseif t == 247 then
-		--nil
 		return nil
 	elseif t == 248 then
-		--false
 		return false
 	elseif t == 249 then
-		--true
 		return true
 	elseif t == 250 then
-		--short int
 		return Buffer_read_data("int16_t[1]", 2)[0]
 	elseif t == 251 then
-		--ctype
-		return ffi.typeof(deserialize_value(seen))
+		local name = deserialize_value(seen, depth + 1)
+		if type(name) ~= "string" or not name:match("^[%a_][%w_ ]*$") then
+			error("disallowed ctype")
+		end
+		return ffi.typeof(name)
 	elseif t == 252 then
-		local ctype = deserialize_value(seen)
-		local len = deserialize_value(seen)
+		local ctype = deserialize_value(seen, depth + 1)
+		if type(ctype) ~= "cdata" or tostring(ctype):sub(1, 6) ~= "ctype<" then
+			error("malformed serialized data")
+		end
+		local len = deserialize_value(seen, depth + 1)
+		if len ~= ffi.sizeof(ctype) then
+			error("malformed serialized data")
+		end
+		Buffer_ensure(len)
 		local read_into = ffi.typeof('$[1]', ctype)()
 		Buffer_read_raw(read_into, len)
 		return ctype(read_into[0])
@@ -421,7 +423,7 @@ end, loadLoveFile = function(fname)
 	local serializedData, error = love.filesystem.newFileData(fname)
 	assert(serializedData, error)
 	Buffer_newDataReader(serializedData:getPointer(), serializedData:getSize())
-	local value = deserialize_value({})
+	local value = deserialize_value({}, 0)
 	-- serializedData needs to not be collected early in a tail-call
 	-- so make sure deserialize_value returns before loadLoveFile does
 	return value
@@ -430,13 +432,13 @@ end, loadData = function(data, size)
 		error('cannot load value from empty data')
 	end
 	Buffer_newDataReader(data, size)
-	return deserialize_value({})
+	return deserialize_value({}, 0)
 end, loads = function(str)
 	if #str == 0 then
 		error('cannot load value from empty string')
 	end
 	Buffer_newReader(str)
-	return deserialize_value({})
+	return deserialize_value({}, 0)
 end, includeMetatables = function(bool)
 	includeMetatables = not not bool
 end, register = function(name, resource)
